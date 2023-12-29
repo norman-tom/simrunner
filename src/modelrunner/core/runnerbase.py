@@ -34,7 +34,7 @@ class Parameters:
     @abc.abstractmethod
     def get_run_args(self):
         """
-        Get the required arguments make a vaild run.
+        Get the required arguments to make a vaild run.
         """
         pass
 
@@ -77,7 +77,7 @@ class Run:
 
 
 class Runner:
-    def __init__(self, parameters: Parameters, *args: list['Runner']) -> None:
+    def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
         self._parameters: Parameters = parameters
         self._runs: list[Run] = []
         self._index: int = 0
@@ -112,12 +112,12 @@ class Runner:
             if result.returncode != 0:
                 raise RunnerError(f"failed at run {self._index}:{self._runs[self._index-1]}\n{result.stdout.decode('utf-8')}")
 
-    def stage(self, run: Run) -> None:
+    def stage(self, run: Run | list[Run]) -> None:
         """
-        Adds a run to the list of runs for this model runner.
+        Adds a run/s to the list of runs for this model runner.
 
         Args:
-            run (Run): The run to be added.
+            run (Run | list[Run]): The run/s to be added.
 
         Raises:
             RunnerError: If the provided run is not an instance of the Run class.
@@ -127,6 +127,16 @@ class Runner:
             None
         """
 
+        if isinstance(run, Run):
+            run = [run]
+
+        if not isinstance(run, list):
+            raise RunnerError('run must be an instance of Run class or a list of Run objects')
+        
+        for r in run:
+            self._stage_one(r)
+
+    def _stage_one(self, run: Run) -> None:
         if not isinstance(run, Run):
             raise RunnerError('run must be an instance of Run class')
         
@@ -138,14 +148,14 @@ class Runner:
         if run not in self._runs:
             self._runs.append(run)
 
-    def get_runs(self, any=True, *args: list[str]):
+    def get_runs(self, *args: str, any=True):
         """
         Retrieves a list of runs based on the provided arguments.
 
         Parameters:
+            *args (str): Variable number of arguments to filter the runs.
             any (bool): If True, returns runs that have any of the provided arguments.
                         If False, returns runs that have all of the provided arguments.
-            *args (list[str]): Variable number of arguments to filter the runs.
 
         Returns:
             list[Run]: A list of Run objects that match the provided arguments.
