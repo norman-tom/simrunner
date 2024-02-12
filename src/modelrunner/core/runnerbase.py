@@ -1,5 +1,6 @@
 import subprocess
 import abc
+import time
 
 class Parameters:
     """
@@ -32,12 +33,11 @@ class Parameters:
         return self.__dict__
     
     @abc.abstractmethod
-    def get_run_args(self):
+    def get_run_args(self) -> list[str]:
         """
         Get the required arguments to make a vaild run.
         """
         pass
-
 
 class Run:
     """
@@ -75,7 +75,6 @@ class Run:
         """
         return self.__dict__
 
-
 class Runner:
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
         self._parameters: Parameters = parameters
@@ -100,17 +99,56 @@ class Runner:
     def __len__(self) -> int:
         return len(self._runs)
 
-    def run(self) -> None:
+    def run(self, *run_numbers: list[str]) -> None:
         """
         Run all the staged runs.
-        """
 
+        Parameters:
+            *run_numbers (str): Variable number of run numbers to execute. If there is only one model, no run number is required. 
+       """
+
+        # Get flags from parameters, or use default
+        try:
+            flags = self._parameters.get_params()['flags']
+        except KeyError:
+            flags = None
+
+        # Get the number of async runs from parameters, or use default
+        try:
+            async_runs = self._parameters.get_params()['async_runs']
+        except KeyError:
+            async_runs = 1
+
+        if len(run_numbers) == 0:
+            run_numbers = [None]
+
+        processes: list[subprocess.Popen] = []
         for run in self:
-            command = self._build_command(self._parameters, run)
-            result = subprocess.run(command, capture_output=True)
+            for rn in run_numbers:
+                # if the queue is full, wait for a process to finish
+                while len(processes) >= async_runs:
+                    for p in processes:
+                        return_code = p.poll()
+                        if return_code is not None:
+                            processes.remove(p)
+                            if return_code != 0:
+                                raise RunnerError(f"failed at run {self._index}:{self._runs[self._index-1]}")
+                            break
+                    time.sleep(1)
 
-            if result.returncode != 0:
-                raise RunnerError(f"failed at run {self._index}:{self._runs[self._index-1]}\n{result.stdout.decode('utf-8')}")
+                # Run the command
+                command = self._build_command(self._parameters, run, flags, rn)
+                process = subprocess.Popen(command)
+                processes.append(process)
+
+                # Print the command that was run
+                print(f"Running {command}")
+
+        # Wait for all processes to finish
+        for p in processes:
+            p.wait()
+            if p.returncode != 0:
+                raise RunnerError(f"failed at run {self._index}:{self._runs[self._index-1]}")
 
     def stage(self, run: Run | list[Run]) -> None:
         """
@@ -142,6 +180,7 @@ class Runner:
         
         run_args: set = set(run.get_args().keys())
         req_args: set = set(self._parameters.get_run_args())
+        
         if run_args != req_args:
             raise RunnerError(f'run arguments do not match required arguments: {req_args}')
 
@@ -202,7 +241,7 @@ class Runner:
                 self._runs.remove(run)
 
     abc.abstractmethod
-    def _build_command(self, parameters: Parameters, run: Run) -> list[str]:
+    def _build_command(self, parameters: Parameters, run: Run, *flags: list[str]) -> list[str]:
         """
         Build the command string to pass to subprocess.run(), this will be model dependent.
         """
