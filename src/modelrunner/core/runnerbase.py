@@ -2,6 +2,89 @@ import subprocess
 import abc
 import time
 
+class ProcessQueue:
+    """
+    Manages the number of processes that can be run at once.
+    """
+
+    def __init__(self, max_processes: int) -> None:
+        self._max_processes = max_processes
+        self._processes: list[subprocess.Popen] = []
+
+    def add(self, process: subprocess.Popen) -> None:
+        """
+        Add a process to the queue.
+
+        Parameters:
+            process (subprocess.Popen): The process to add.
+
+        Returns:
+            None
+        """
+
+        self._processes.append(process)
+
+    def remove(self, process: subprocess.Popen) -> None:
+        """
+        Remove a process from the queue.
+
+        Parameters:
+            process (subprocess.Popen): The process to remove.
+
+        Returns:
+            None
+        """
+
+        self._processes.remove(process)
+
+    def full(self) -> bool:
+        """
+        Check if the queue is full.
+
+        Returns:
+            bool: True if the queue is full, False otherwise.
+        """
+
+        return len(self._processes) >= self._max_processes
+
+    def wait(self, sleep=0.1) -> None:
+        """
+        Wait until there is a free position in the process queue, allowing another processes to be added.
+        Wait will block while the maximum number of processes are running.
+
+        Raises:
+            RunnerError: If a process returned a non zero exit code.
+        
+        Returns:
+            None
+        """
+
+        while self.full():
+            for p in self._processes:
+                return_code = p.poll()
+                if return_code is not None:
+                    self._processes.remove(p)
+                    if return_code != 0:
+                        raise RunnerError(f"failed at run {p}")
+                    break
+            time.sleep(sleep)
+
+    def wait_all(self) -> None:
+        """
+        Wait for all processes to finish.
+
+        Raises:
+            RunnerError: If a process returned a non zero exit code.
+
+        Returns:
+            None
+        """
+
+        for p in self._processes:
+            p.wait()
+            if p.returncode != 0:
+                raise RunnerError(f"failed at run {p}")
+            
 class Parameters:
     """
     The parameters of the model.
@@ -122,33 +205,14 @@ class Runner:
         if len(run_numbers) == 0:
             run_numbers = [None]
 
-        processes: list[subprocess.Popen] = []
+        proc_queue = ProcessQueue(async_runs)
         for run in self:
             for rn in run_numbers:
-                # if the queue is full, wait for a process to finish
-                while len(processes) >= async_runs:
-                    for p in processes:
-                        return_code = p.poll()
-                        if return_code is not None:
-                            processes.remove(p)
-                            if return_code != 0:
-                                raise RunnerError(f"failed at run {self._index}:{self._runs[self._index-1]}")
-                            break
-                    time.sleep(1)
-
-                # Run the command
+                proc_queue.wait()
                 command = self._build_command(self._parameters, run, flags, rn)
-                process = subprocess.Popen(command)
-                processes.append(process)
-
-                # Print the command that was run
+                proc_queue.add(subprocess.Popen(command))
                 print(f"Running {command}")
-
-        # Wait for all processes to finish
-        for p in processes:
-            p.wait()
-            if p.returncode != 0:
-                raise RunnerError(f"failed at run {self._index}:{self._runs[self._index-1]}")
+        proc_queue.wait_all()
 
     def stage(self, run: Run | list[Run]) -> None:
         """
@@ -175,6 +239,20 @@ class Runner:
             self._stage_one(r)
 
     def _stage_one(self, run: Run) -> None:
+        """
+        Adds a run to the list of runs for this model runner.
+
+        Args:
+            run (Run): The run to be added.
+
+        Raises:
+            RunnerError: If the provided run is not an instance of the Run class.
+            RunnerError: If the run arguments do not match the required arguments.
+
+        Returns:
+            None
+        """
+
         if not isinstance(run, Run):
             raise RunnerError('run must be an instance of Run class')
         

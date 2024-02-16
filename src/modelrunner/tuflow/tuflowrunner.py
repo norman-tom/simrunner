@@ -48,6 +48,7 @@ class Parameters(runnerbase.Parameters):
             return tcf_files
         else:
             return None
+        
     
     def get_tcf(self, run_number: str) -> str:
         """
@@ -124,7 +125,7 @@ class Run(runnerbase.Run):
             ret.append(f"-{k}")
             ret.append(f"{v}")
 
-        return ret
+        return ret                                                   
 
 
 class Runner(runnerbase.Runner):
