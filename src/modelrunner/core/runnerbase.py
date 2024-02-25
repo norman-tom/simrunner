@@ -1,41 +1,39 @@
 import subprocess
 import abc
 import time
+import threading
 
-class ProcessQueue:
+class TaskQueue:
     """
-    Manages the number of processes that can be run at once.
+    Manages the number of tasks that can be run at once.
     """
 
-    def __init__(self, max_processes: int) -> None:
-        self._max_processes = max_processes
-        self._processes: list[subprocess.Popen] = []
+    def __init__(self, max_tasks: int) -> None:
+        self._max_tasks = max_tasks
+        self._tasks: list[None] = []
 
-    def add(self, process: subprocess.Popen) -> None:
+    def add(self, task: threading.Thread | subprocess.Popen) -> None:
         """
-        Add a process to the queue.
-
-        Parameters:
-            process (subprocess.Popen): The process to add.
+        Add a task to the queue.
 
         Returns:
             None
         """
 
-        self._processes.append(process)
+        if len(self._tasks) < self._max_tasks:
+            self._tasks.append(task)
+        else:
+            raise RunnerError('task queue is full, call wait() to wait for a free position in the queue.')
 
-    def remove(self, process: subprocess.Popen) -> None:
+    def remove(self, task: threading.Thread | subprocess.Popen) -> None:
         """
-        Remove a process from the queue.
-
-        Parameters:
-            process (subprocess.Popen): The process to remove.
+        Remove a task from the queue.
 
         Returns:
             None
         """
 
-        self._processes.remove(process)
+        self._tasks.remove(task)
 
     def full(self) -> bool:
         """
@@ -45,46 +43,103 @@ class ProcessQueue:
             bool: True if the queue is full, False otherwise.
         """
 
-        return len(self._processes) >= self._max_processes
+        return len(self._tasks) >= self._max_tasks
+
+    abc.abstractmethod
+    def wait(self, sleep=0.1) -> None:
+        """
+        Wait until there is a free position in the task queue, allowing another task to be added.
+        Wait will block while the maximum number of tasks are running.
+
+        Returns:
+            None
+        """
+        pass
+    
+    abc.abstractmethod
+    def wait_all(self, sleep=0.1) -> None:
+        """
+        Wait for all tasks to finish.
+
+        Returns:
+            None
+        """
+        pass
+
+class ThreadQueue(TaskQueue):
+    """
+    Manages the number of threads that can be run at once.
+    """
+
+    def __init__(self, max_threads: int) -> None:
+        super().__init__(max_threads)
+        self._tasks: list[threading.Thread] = []
+    
+    def add(self, task: threading.Thread) -> None:
+        """
+        Add a thread to the queue.
+
+        Args:
+            task (threading.Thread): The thread to be added.
+
+        Returns:
+            None
+        """	
+
+        task.start()
+        super().add(task)
 
     def wait(self, sleep=0.1) -> None:
         """
-        Wait until there is a free position in the process queue, allowing another processes to be added.
-        Wait will block while the maximum number of processes are running.
+        Wait until there is a free position in the thread queue, allowing another threads to be added.
+        Wait will block while the maximum number of threads are running.
 
-        Raises:
-            RunnerError: If a process returned a non zero exit code.
-        
         Returns:
             None
         """
 
         while self.full():
-            for p in self._processes:
-                return_code = p.poll()
-                if return_code is not None:
-                    self._processes.remove(p)
-                    if return_code != 0:
-                        raise RunnerError(f"failed at run {p}")
+            for t in self._tasks:
+                if not t.is_alive():
+                    self._tasks.remove(t)
                     break
             time.sleep(sleep)
 
     def wait_all(self) -> None:
         """
-        Wait for all processes to finish.
-
-        Raises:
-            RunnerError: If a process returned a non zero exit code.
+        Wait for all threads to finish.
 
         Returns:
             None
         """
 
-        for p in self._processes:
-            p.wait()
-            if p.returncode != 0:
-                raise RunnerError(f"failed at run {p}")
-            
+        for t in self._tasks:
+            t.join()
+        self._threads = []
+
+class ModelProcess(threading.Thread):
+    """
+    A thread that runs a model process.
+    """
+
+    def __init__(self, command: list[str]) -> None:
+        super().__init__()
+        self._command = command
+
+    def execute(self, cmd):
+        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+        for stdout_line in iter(popen.stdout.readline, ""):
+            yield stdout_line 
+        popen.stdout.close()
+        return_code = popen.wait()
+        if return_code:
+            raise subprocess.CalledProcessError(return_code, cmd)
+        
+    def run(self) -> None:
+        with open(f'output{threading.get_ident()}.txt', 'w') as f:
+            for path in self.execute(self._command):
+                f.write(path)
+
 class Parameters:
     """
     The parameters of the model.
@@ -157,7 +212,7 @@ class Run:
             dict: A dictionary of the run arguments.
         """
         return self.__dict__
-
+    
 class Runner:
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
         self._parameters: Parameters = parameters
@@ -205,14 +260,13 @@ class Runner:
         if len(run_numbers) == 0:
             run_numbers = [None]
 
-        proc_queue = ProcessQueue(async_runs)
+        thread_queue = ThreadQueue(async_runs)
         for run in self:
             for rn in run_numbers:
-                proc_queue.wait()
+                thread_queue.wait()
                 command = self._build_command(self._parameters, run, flags, rn)
-                proc_queue.add(subprocess.Popen(command))
-                print(f"Running {command}")
-        proc_queue.wait_all()
+                thread_queue.add(ModelProcess(command))
+        thread_queue.wait_all()
 
     def stage(self, run: Run | list[Run]) -> None:
         """

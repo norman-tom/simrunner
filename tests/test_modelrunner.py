@@ -1,10 +1,128 @@
 import unittest
+import subprocess
+import threading
+import time
 import modelrunner.core.runnerbase as mr
+
+class TestTaskQueue(unittest.TestCase):
+    def setUp(self) -> None:
+        self.queue = mr.TaskQueue(2)
+    
+    def test_add_too_many(self):
+        thread1 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread2 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread3 = threading.Thread(target=time.sleep, args=(0.1,))
+        self.queue.add(thread1)
+        self.queue.add(thread2)
+        with self.assertRaises(mr.RunnerError):
+            self.queue.add(thread3)
+
+class TestProcessQueue(unittest.TestCase):
+    def setUp(self):
+        self.queue = mr.ProcessQueue(2)
+
+    def test_add_remove(self):
+        process = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
+        self.queue.add(process)
+        self.assertEqual(len(self.queue._tasks), 1)
+        self.queue.remove(process)
+        self.assertEqual(len(self.queue._tasks), 0)
+
+    def test_full(self):
+        process1 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
+        process2 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
+        self.queue.add(process1)
+        self.queue.add(process2)
+        self.assertTrue(self.queue.full())
+
+    def test_wait(self):
+        process1 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
+        process2 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
+        self.queue.add(process1)
+        self.queue.add(process2)
+        self.queue.wait()
+        self.assertFalse(self.queue.full())
+
+    def test_wait_all(self):
+        process1 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
+        process2 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
+        self.queue.add(process1)
+        self.queue.add(process2)
+        self.queue.wait_all()
+        self.assertEqual(len(self.queue._processes), 0)
+
+    def test_runner_error(self):
+        process = subprocess.Popen(['python', '/nonexistent'])
+        self.queue.add(process)
+        with self.assertRaises(mr.RunnerError):
+            self.queue.wait_all()
+
+class TestThreadQueue(unittest.TestCase):
+    def setUp(self):
+        self.queue = mr.ThreadQueue(2)
+
+    def test_add_remove(self):
+        thread = threading.Thread(target=time.sleep, args=(0.1,))
+        self.queue.add(thread)
+        self.assertEqual(len(self.queue._tasks), 1)
+        self.queue.remove(thread)
+        self.assertEqual(len(self.queue._tasks), 0)
+
+    def test_full(self):
+        thread1 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread2 = threading.Thread(target=time.sleep, args=(0.1,))
+        self.queue.add(thread1)
+        self.queue.add(thread2)
+        self.assertTrue(self.queue.full())
+
+    def test_wait(self):
+        thread1 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread2 = threading.Thread(target=time.sleep, args=(0.1,))
+        self.queue.add(thread1)
+        self.queue.add(thread2)
+        self.queue.wait()
+        self.assertFalse(self.queue.full())
+
+    def test_wait_all(self):
+        thread1 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread2 = threading.Thread(target=time.sleep, args=(0.1,))
+        self.queue.add(thread1)
+        self.queue.add(thread2)
+        self.queue.wait_all()
+        self.assertEqual(len(self.queue._threads), 0)
+
+class TestModelProcess(unittest.TestCase):
+    def test_model_process(self):
+        process_args = ['python', './tests/stubs/process.py', '0.1']
+        process = mr.ModelProcess(process_args)
+        process.start()
+        self.assertTrue(process.is_alive())
+        process.join()
+        self.assertFalse(process.is_alive())
+
+class TestThreadedProcess(unittest.TestCase):
+    def test_threaded_process(self):
+        process_args = ['python', './tests/stubs/process.py', '0.1']
+        thread_queue = mr.ThreadQueue(2)
+        thread_queue.add(mr.ModelProcess(process_args))
+        thread_queue.add(mr.ModelProcess(process_args))
+        self.assertEqual(len(thread_queue._tasks), 2)
+        thread_queue.wait_all()
+        self.assertEqual(len(thread_queue._threads), 0)
+
+    def test_waiting_on_finish(self):
+        process_args = ['python', './tests/stubs/process.py', '0.1']
+        thread_queue = mr.ThreadQueue(2)
+        thread_queue.add(mr.ModelProcess(process_args))
+        thread_queue.add(mr.ModelProcess(process_args))
+        for _ in range(5):
+            thread_queue.wait()
+            thread_queue.add(mr.ModelProcess(process_args))
 
 class TestParameters(unittest.TestCase):
     def setUp(self) -> None:
         return super().setUp()
-    
+
     def test_parameters(self):
         # Implement the get_run_args method
         class Parameters(mr.Parameters):
@@ -166,15 +284,15 @@ class TestRunner(unittest.TestCase):
         r.stage(self.r3)
         r4 = mr.Run(a=1, b=10, c=11)
         r.stage(r4)
-        runs = r.get_runs(False, 1, 2)
+        runs = r.get_runs(1, 2, any=False)
         self.assertEqual(runs, [self.r1])
 
         # Test that value 10 only get r4
-        runs = r.get_runs(False, 10)
+        runs = r.get_runs(10, any=False)
         self.assertEqual(runs, [r4])
 
         # Test that value 15 gets nothing
-        runs = r.get_runs(False, 15)
+        runs = r.get_runs(15, any=False)
         self.assertEqual(runs, [])
 
 
@@ -229,6 +347,35 @@ class TestRunner(unittest.TestCase):
         to_remove = r.get_runs(True, 1)
         r.remove_runs(to_remove)
         self.assertEqual(r._runs, [self.r2, self.r3])
+
+    def test_runner_run(self): 
+        # setup parameters
+        class MyRunner(mr.Runner):
+            def _build_command(self, parameters: mr.Parameters, run: mr.Run, *flags: list[str]) -> list[str]:
+                return ['python', './tests/stubs/writing_process.py', '0.01']
+            
+        class MyParameters(mr.Parameters):
+            def get_run_args(self):
+                return ['a', 'b', 'c']
+            
+        start = time.time()
+        
+        parameters = MyParameters(async_runs=2)
+        runner = MyRunner(parameters)
+        run1 = mr.Run(a=1, b=2, c=3)
+        run2 = mr.Run(a=4, b=5, c=6)
+        run3 = mr.Run(a=7, b=8, c=9)
+        run4 = mr.Run(a=10, b=11, c=12)
+        run5 = mr.Run(a=13, b=14, c=15)
+        runner.stage(run1)
+        runner.stage(run2)
+        runner.stage(run3)
+        runner.stage(run4)
+        runner.stage(run5)
+        runner.run()
+
+        if time.time() - start < 0.3:
+            self.fail('Expected run to take more than 0.3 seconds')
 
 if __name__ == '__main__':
     unittest.main()
