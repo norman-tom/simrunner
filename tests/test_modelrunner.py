@@ -352,7 +352,7 @@ class TestRunner(unittest.TestCase):
         # setup parameters
         class MyRunner(mr.Runner):
             def _build_command(self, parameters: mr.Parameters, run: mr.Run, *flags: list[str]) -> list[str]:
-                return ['python', './tests/stubs/writing_process.py', '0.01']
+                return ['python', './tests/stubs/writing_process.py', '0.1']
             
         class MyParameters(mr.Parameters):
             def get_run_args(self):

@@ -86,8 +86,8 @@ class ThreadQueue(TaskQueue):
             None
         """	
 
-        task.start()
         super().add(task)
+        task.start()
 
     def wait(self, sleep=0.1) -> None:
         """
@@ -117,16 +117,137 @@ class ThreadQueue(TaskQueue):
             t.join()
         self._threads = []
 
+class Reporter:
+    """
+    An interface to report the output of a model run.
+    """
+
+    def __enter__(self) -> 'Reporter':	
+        """
+        Enter the context.
+
+        Returns:
+            self: The Reporter object.
+        """
+        self.open()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback) -> None:
+        """
+        Exit the context.
+
+        Args:
+            exc_type (type): The type of the exception raised, if any.
+            exc_value (Exception): The exception raised, if any.
+            traceback (traceback): The traceback of the exception, if any.
+
+        Returns:
+            None
+        """
+        self.close()
+
+    abc.abstractmethod
+    def open(self) -> None:
+        """
+        Open the file with the specified mode.
+
+        Args:
+            mode (str): The mode to open the file in.
+
+        Returns:
+            None
+        """
+        pass
+    
+    abc.abstractmethod
+    def close(self) -> None:
+        """
+        Close the file.
+
+        Returns:
+            None
+        """
+        pass
+    
+    abc.abstractmethod
+    def write(self, content: str) -> None:
+        """
+        Write content to the file.
+
+        Args:
+            content (str): The content to write.
+
+        Returns:
+            None
+        """
+        pass
+
+class FileReporter(Reporter):
+    """
+    A class to report the output of a model run to a file.
+    """
+
+    def __init__(self, file: str) -> None:
+        self._file = file
+        self._f = None
+
+    def open(self) -> None:
+        """
+        Open the file with the specified mode.
+
+        Args:
+            mode (str): The mode to open the file in.
+
+        Returns:
+            None
+        """
+        self._f = open(self._file, 'w')
+
+    def close(self) -> None:
+        """
+        Close the file.
+
+        Returns:
+            None
+        """
+        self._f.close()
+
+    def write(self, content: str) -> None:
+        """
+        Write content to the file.
+
+        Args:
+            content (str): The content to write.
+
+        Returns:
+            None
+        """
+        self._f.write(content)
+
 class ModelProcess(threading.Thread):
     """
     A thread that runs a model process.
+
+    Parameters:
+        command (list[str]): The command to run.
+        writeable (str): The object to write the output to. This can be a file or a gui object.
     """
 
-    def __init__(self, command: list[str]) -> None:
+    def __init__(self, command: list[str], writeable) -> None:
         super().__init__()
         self._command = command
+        self._writeable = writeable
 
     def execute(self, cmd):
+        """
+        Executes the subprocess and yields the stdout line by line.
+
+        Args:
+            cmd (list[str]): The command to run.
+        Yields:
+            str: The stdout line.
+        """
+
         popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
         for stdout_line in iter(popen.stdout.readline, ""):
             yield stdout_line 
@@ -136,9 +257,13 @@ class ModelProcess(threading.Thread):
             raise subprocess.CalledProcessError(return_code, cmd)
         
     def run(self) -> None:
-        with open(f'output{threading.get_ident()}.txt', 'w') as f:
-            for path in self.execute(self._command):
-                f.write(path)
+        """
+        Main thread method to run the model process.
+        """
+
+        with FileReporter(self._writeable) as f:
+            for out in self.execute(self._command):
+                f.write(out)
 
 class Parameters:
     """
@@ -241,7 +366,7 @@ class Runner:
         """
         Run all the staged runs.
 
-        Parameters:
+        Args:
             *run_numbers (str): Variable number of run numbers to execute. If there is only one model, no run number is required. 
        """
 
@@ -265,8 +390,13 @@ class Runner:
             for rn in run_numbers:
                 thread_queue.wait()
                 command = self._build_command(self._parameters, run, flags, rn)
-                thread_queue.add(ModelProcess(command))
+                writeable = self.__write_obj(rn, run)
+                thread_queue.add(ModelProcess(command, writeable))
         thread_queue.wait_all()
+
+    def __write_obj(self, rn, run):
+        #TODO: is this the best way to do this? Should this be implemented by the specific model?
+        return f'run_{rn}_{list(run.get_args().values())}.out'
 
     def stage(self, run: Run | list[Run]) -> None:
         """
@@ -323,7 +453,7 @@ class Runner:
         """
         Retrieves a list of runs based on the provided arguments.
 
-        Parameters:
+        Args:
             *args (str): Variable number of arguments to filter the runs.
             any (bool): If True, returns runs that have any of the provided arguments.
                         If False, returns runs that have all of the provided arguments.
