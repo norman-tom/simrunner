@@ -5,7 +5,10 @@ import threading
 
 class TaskQueue:
     """
-    Manages the number of tasks that can be run at once.
+    Manages the number of tasks that can be run at once. Used as a base class for ThreadQueue.
+
+    Parameters:
+        max_tasks (int): The maximum number of tasks that can be run at once.
     """
 
     def __init__(self, max_tasks: int) -> None:
@@ -69,6 +72,9 @@ class TaskQueue:
 class ThreadQueue(TaskQueue):
     """
     Manages the number of threads that can be run at once.
+
+    Parameters:
+        max_threads (int): The maximum number of threads that can be run at once.
     """
 
     def __init__(self, max_threads: int) -> None:
@@ -185,6 +191,9 @@ class Reporter:
 class FileReporter(Reporter):
     """
     A class to report the output of a model run to a file.
+
+    Parameters:
+        file (str): The file to report to.
     """
 
     def __init__(self, file: str) -> None:
@@ -230,13 +239,13 @@ class ModelProcess(threading.Thread):
 
     Parameters:
         command (list[str]): The command to run.
-        writeable (str): The object to write the output to. This can be a file or a gui object.
+        reporter (Reporter): The Reporter to report outputs with.
     """
 
-    def __init__(self, command: list[str], writeable) -> None:
+    def __init__(self, command: list[str], reporter: Reporter) -> None:
         super().__init__()
         self._command = command
-        self._writeable = writeable
+        self._reporter = reporter
 
     def execute(self, cmd):
         """
@@ -261,7 +270,7 @@ class ModelProcess(threading.Thread):
         Main thread method to run the model process.
         """
 
-        with FileReporter(self._writeable) as f:
+        with self._reporter as f:
             for out in self.execute(self._command):
                 f.write(out)
 
@@ -339,10 +348,21 @@ class Run:
         return self.__dict__
     
 class Runner:
+    """
+    The Runner is responsible for queueing and running the model/s. 
+    Runs are staged to the runner then executed when run is called. 
+    Parameters are passed to the runner to config the runner.
+
+    Parameters:
+        parameters (Parameters): The parameters of the model.
+        *args (Runner | None): Variable number of runners to add to this runner. A runner can inherit runs from other runners, if required.
+    """
+
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
         self._parameters: Parameters = parameters
         self._runs: list[Run] = []
         self._index: int = 0
+        self._reporter = FileReporter
 
         for runner in args:
             for run in runner:
@@ -361,13 +381,16 @@ class Runner:
     
     def __len__(self) -> int:
         return len(self._runs)
+    
+    def __getitem__(self, key: int) -> Run:
+        return self._runs[key]
 
     def run(self, *run_numbers: list[str]) -> None:
         """
         Run all the staged runs.
 
         Args:
-            *run_numbers (str): Variable number of run numbers to execute. If there is only one model, no run number is required. 
+            *run_numbers (str/s): Variable number of run numbers to execute. If there is only one model, no run number is required. 
        """
 
         # Get flags from parameters, or use default
@@ -390,12 +413,18 @@ class Runner:
             for rn in run_numbers:
                 thread_queue.wait()
                 command = self._build_command(self._parameters, run, flags, rn)
-                writeable = self.__write_obj(rn, run)
-                thread_queue.add(ModelProcess(command, writeable))
+                reporter = self._reporter(self.__writeable(rn, run))
+                thread_queue.add(ModelProcess(command, reporter))
         thread_queue.wait_all()
+    
+    def __writeable(self, rn, run):
+        """
+        Returns the writable object to use for the reporter.
 
-    def __write_obj(self, rn, run):
-        #TODO: is this the best way to do this? Should this be implemented by the specific model?
+        For a FileReporter, this is the file name.
+        For a GUIReporter, this is the GUI text object.
+        """
+        #TODO: is this the best way to do this?
         return f'run_{rn}_{list(run.get_args().values())}.out'
 
     def stage(self, run: Run | list[Run]) -> None:
