@@ -1,5 +1,5 @@
 import unittest
-import subprocess
+import sys
 import threading
 import time
 import modelrunner.core.runnerbase as mr
@@ -16,46 +16,6 @@ class TestTaskQueue(unittest.TestCase):
         self.queue.add(thread2)
         with self.assertRaises(mr.RunnerError):
             self.queue.add(thread3)
-
-class TestProcessQueue(unittest.TestCase):
-    def setUp(self):
-        self.queue = mr.ProcessQueue(2)
-
-    def test_add_remove(self):
-        process = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
-        self.queue.add(process)
-        self.assertEqual(len(self.queue._tasks), 1)
-        self.queue.remove(process)
-        self.assertEqual(len(self.queue._tasks), 0)
-
-    def test_full(self):
-        process1 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
-        process2 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
-        self.queue.add(process1)
-        self.queue.add(process2)
-        self.assertTrue(self.queue.full())
-
-    def test_wait(self):
-        process1 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
-        process2 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
-        self.queue.add(process1)
-        self.queue.add(process2)
-        self.queue.wait()
-        self.assertFalse(self.queue.full())
-
-    def test_wait_all(self):
-        process1 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
-        process2 = subprocess.Popen(['python', './tests/stubs/process.py', '0.1'])
-        self.queue.add(process1)
-        self.queue.add(process2)
-        self.queue.wait_all()
-        self.assertEqual(len(self.queue._processes), 0)
-
-    def test_runner_error(self):
-        process = subprocess.Popen(['python', '/nonexistent'])
-        self.queue.add(process)
-        with self.assertRaises(mr.RunnerError):
-            self.queue.wait_all()
 
 class TestThreadQueue(unittest.TestCase):
     def setUp(self):
@@ -94,7 +54,7 @@ class TestThreadQueue(unittest.TestCase):
 class TestModelProcess(unittest.TestCase):
     def test_model_process(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
-        process = mr.ModelProcess(process_args)
+        process = mr.ModelProcess(process_args, mr.FileReporter(sys.stdout))
         process.start()
         self.assertTrue(process.is_alive())
         process.join()
@@ -104,8 +64,8 @@ class TestThreadedProcess(unittest.TestCase):
     def test_threaded_process(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
         thread_queue = mr.ThreadQueue(2)
-        thread_queue.add(mr.ModelProcess(process_args))
-        thread_queue.add(mr.ModelProcess(process_args))
+        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
+        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
         self.assertEqual(len(thread_queue._tasks), 2)
         thread_queue.wait_all()
         self.assertEqual(len(thread_queue._threads), 0)
@@ -113,11 +73,11 @@ class TestThreadedProcess(unittest.TestCase):
     def test_waiting_on_finish(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
         thread_queue = mr.ThreadQueue(2)
-        thread_queue.add(mr.ModelProcess(process_args))
-        thread_queue.add(mr.ModelProcess(process_args))
+        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
+        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
         for _ in range(5):
             thread_queue.wait()
-            thread_queue.add(mr.ModelProcess(process_args))
+            thread_queue.add(mr.ModelProcess(process_args, sys.stdout))
 
 class TestParameters(unittest.TestCase):
     def setUp(self) -> None:
@@ -295,7 +255,6 @@ class TestRunner(unittest.TestCase):
         runs = r.get_runs(15, any=False)
         self.assertEqual(runs, [])
 
-
     def test_remove_runs(self):
         # Test removing runs
         r: mr.Runner = mr.Runner(self.parameters)
@@ -376,6 +335,21 @@ class TestRunner(unittest.TestCase):
 
         if time.time() - start < 0.3:
             self.fail('Expected run to take more than 0.3 seconds')
+
+    def test_runner_indexing(self):
+        parameters = self.parameters
+        runner = mr.Runner(parameters)
+        run1 = mr.Run(a=1, b=2, c=3)
+        run2 = mr.Run(a=4, b=5, c=6)
+        run3 = mr.Run(a=7, b=8, c=9)
+        runner.stage(run1)
+        runner.stage(run2)
+        runner.stage(run3)
+        self.assertEqual(runner[0], run1)
+        self.assertEqual(runner[1], run2)
+        self.assertEqual(runner[2], run3)
+        self.assertEqual(runner[0:2], [run1, run2])
+ 
 
 if __name__ == '__main__':
     unittest.main()

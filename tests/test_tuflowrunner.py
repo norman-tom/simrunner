@@ -10,12 +10,12 @@ class TestParameters(unittest.TestCase):
         # Test basic creation
         p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\one_tcf")
         test_path = os.path.realpath(r"tests\data\tuflow\one_tcf\model_~s1~_~e1~_~e2~.tcf")
-        self.assertEqual(p.get_tcf(), test_path)
+        self.assertEqual(p.get_tcf(""), test_path)
         
         # Test with multiple tcf files
         p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\multi_tcf")
         try:
-            p.get_tcf()
+            p.get_tcf("")
             self.fail('Expected FileNotFoundError')
         except FileNotFoundError:
             pass
@@ -23,7 +23,7 @@ class TestParameters(unittest.TestCase):
         # Test with no tcf files
         p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\no_tcf")
         try:
-            p.get_tcf()
+            p.get_tcf("")
             self.fail('Expected FileNotFoundError')
         except FileNotFoundError:
             pass
@@ -70,7 +70,7 @@ class TestRun(unittest.TestCase):
     def test_get_run_args(self):
         # Test basic creation
         r: mr.Run = mr.Run(a='1', b='2', c='3')
-        test_tokens = ["-b", "-a", "1", "-b", "2", "-c", "3"]
+        test_tokens = ["-a", "1", "-b", "2", "-c", "3"]
         self.assertEqual(r.run_args(), test_tokens)
 
 
@@ -92,7 +92,7 @@ class TestRunner(unittest.TestCase):
                        "-b", "-s1", "1", "-e1", "2", "-e2", "3",
                        os.path.realpath(r"tests\data\tuflow\one_tcf\model_~s1~_~e1~_~e2~.tcf")]
         
-        self.assertEqual(runner._build_command(p, r), test_tokens)
+        self.assertEqual(runner._build_command(p, r, ["-b"], ""), test_tokens)
 
     def test_real(self):
         p: mr.Parameters = mr.Parameters(exec_path=r"C:\Program Files\TUFLOW",
