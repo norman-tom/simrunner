@@ -2,6 +2,7 @@ import unittest
 import sys
 import threading
 import time
+import os
 import modelrunner.core.runnerbase as mr
 
 class TestTaskQueue(unittest.TestCase):
@@ -349,7 +350,70 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(runner[1], run2)
         self.assertEqual(runner[2], run3)
         self.assertEqual(runner[0:2], [run1, run2])
- 
+    
+    def test_stdout(self):
+        # setup parameters
+        class MyRunner(mr.Runner):
+            def _build_command(self, parameters: mr.Parameters, run: mr.Run, *flags: list[str]) -> list[str]:
+                return ['python', './tests/stubs/writing_process.py', '0.01']
+            
+        class MyParameters(mr.Parameters):
+            def get_run_args(self):
+                return ['a', 'b', 'c']
+            
+        parameters = MyParameters(async_runs=2, stdout=r'./tests/stdout')
+        runner = MyRunner(parameters)
+
+        # Remove all the files in the directory
+        folder_path = 'tests/stdout'
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+
+        run1 = mr.Run(a=1, b=2, c=3)
+        run2 = mr.Run(a=4, b=5, c=6)
+        runner.stage(run1)
+        runner.stage(run2)
+        runner.run()
+
+        # Check if the file exists
+        for filename in ['run_NA_[1, 2, 3].out', 'run_NA_[4, 5, 6].out']:
+            file_path = os.path.join(folder_path, filename)
+            if os.path.isfile(file_path):
+                self.assertTrue(True)
+            else:
+                self.fail('Expected file to be created')
+
+        # Remove files that start with "run_NA_"
+        folder_path = os.getcwd()
+        for filename in os.listdir(folder_path):
+            if filename.startswith('run_NA_['):
+                file_path = os.path.join(folder_path, filename)
+                os.remove(file_path)
+
+        # Update the parameters to not use a stdout folder
+        parameters = MyParameters(async_runs=2)
+        runner.__dict__['_parameters'] = parameters
+        runner.run()
+
+        # Check if the file exists in the correct location
+        for filename in ['run_NA_[1, 2, 3].out', 'run_NA_[4, 5, 6].out']:
+            file_path = os.path.join(folder_path, filename)
+            if os.path.isfile(file_path):
+                self.assertTrue(True)
+                os.remove(file_path) # Clean up root folder
+            else:
+                self.fail('Expected file to be created')
+
+        parameters = MyParameters(async_runs=2, stdout=r'./tests/stdout/noexist')
+        runner.__dict__['_parameters'] = parameters
+        try:
+            runner.run()
+            self.fail('Expected FileNotFoundError')
+        except FileNotFoundError:
+            pass
+        
 
 if __name__ == '__main__':
     unittest.main()

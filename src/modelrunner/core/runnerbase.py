@@ -2,6 +2,7 @@ import subprocess
 import abc
 import time
 import threading
+import os
 
 class TaskQueue:
     """
@@ -391,6 +392,9 @@ class Runner:
 
         Args:
             *run_numbers (str/s): Variable number of run numbers to execute. If there is only one model, no run number is required. 
+
+        Raises:
+            FileNotFoundError: If the stdout path does not exist.
        """
 
         # Get flags from parameters, or use default
@@ -425,7 +429,17 @@ class Runner:
         For a GUIReporter, this is the GUI text object.
         """
         #TODO: is this the best way to do this?
-        return f'run_{rn}_{list(run.get_args().values())}.out'
+        try:
+            path = self._parameters.get_params()['stdout']
+            if not os.path.exists(path):
+                raise FileNotFoundError(f'{path} does not exist')
+        except KeyError:
+            path = os.getcwd()
+
+        if rn is None:
+            rn = 'NA'
+
+        return os.path.join(path, f'run_{rn}_{list(run.get_args().values())}.out')
 
     def stage(self, run: Run | list[Run]) -> None:
         """
