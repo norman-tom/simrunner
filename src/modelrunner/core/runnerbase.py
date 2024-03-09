@@ -189,51 +189,6 @@ class Reporter:
         """
         pass
 
-class FileReporter(Reporter):
-    """
-    A class to report the output of a model run to a file.
-
-    Parameters:
-        file (str): The file to report to.
-    """
-
-    def __init__(self, file: str) -> None:
-        self._file = file
-        self._f = None
-
-    def open(self) -> None:
-        """
-        Open the file with the specified mode.
-
-        Args:
-            mode (str): The mode to open the file in.
-
-        Returns:
-            None
-        """
-        self._f = open(self._file, 'w')
-
-    def close(self) -> None:
-        """
-        Close the file.
-
-        Returns:
-            None
-        """
-        self._f.close()
-
-    def write(self, content: str) -> None:
-        """
-        Write content to the file.
-
-        Args:
-            content (str): The content to write.
-
-        Returns:
-            None
-        """
-        self._f.write(content)
-
 class ModelProcess(threading.Thread):
     """
     A thread that runs a model process.
@@ -348,6 +303,73 @@ class Run:
         """
         return self.__dict__
     
+class FileReporter(Reporter):
+    """
+    A class to report the output of a model run to a file.
+
+    Parameters:
+        parameters (Parameters): The parameters of the model.
+        run (Run): The run to report to.
+        run_number (str): The file to report to.
+    """
+
+    def __init__(self, parameters: Parameters, run: Run, run_number: str) -> None:
+        self._parameters = parameters
+        self._file = self.__writeable(run, run_number)
+        self._f = None
+
+    def open(self) -> None:
+        """
+        Open the file with the specified mode.
+
+        Args:
+            mode (str): The mode to open the file in.
+
+        Returns:
+            None
+        """
+        self._f = open(self._file, 'w')
+
+    def close(self) -> None:
+        """
+        Close the file.
+
+        Returns:
+            None
+        """
+        self._f.close()
+
+    def write(self, content: str) -> None:
+        """
+        Write content to the file.
+
+        Args:
+            content (str): The content to write.
+
+        Returns:
+            None
+        """
+        self._f.write(content)
+
+    def __writeable(self, run: Run, rn: str) -> str:
+        """
+        Returns the writable object to use for the reporter.
+
+        For a FileReporter, this is the file name.
+        """
+
+        try:
+            path = self._parameters.get_params()['stdout']
+            if not os.path.exists(path):
+                raise FileNotFoundError(f'{path} does not exist')
+        except KeyError:
+            path = os.getcwd()
+
+        if rn is None:
+            rn = 'NA'
+
+        return os.path.join(path, f'run_{rn}_{list(run.get_args().values())}.out')
+    
 class Runner:
     """
     The Runner is responsible for queueing and running the model/s. 
@@ -417,29 +439,9 @@ class Runner:
             for rn in run_numbers:
                 thread_queue.wait()
                 command = self._build_command(self._parameters, run, flags, rn)
-                reporter = self._reporter(self.__writeable(rn, run))
+                reporter = self._reporter(self._parameters, run, rn)
                 thread_queue.add(ModelProcess(command, reporter))
         thread_queue.wait_all()
-    
-    def __writeable(self, rn, run):
-        """
-        Returns the writable object to use for the reporter.
-
-        For a FileReporter, this is the file name.
-        For a GUIReporter, this is the GUI text object.
-        """
-        #TODO: is this the best way to do this?
-        try:
-            path = self._parameters.get_params()['stdout']
-            if not os.path.exists(path):
-                raise FileNotFoundError(f'{path} does not exist')
-        except KeyError:
-            path = os.getcwd()
-
-        if rn is None:
-            rn = 'NA'
-
-        return os.path.join(path, f'run_{rn}_{list(run.get_args().values())}.out')
 
     def stage(self, run: Run | list[Run]) -> None:
         """

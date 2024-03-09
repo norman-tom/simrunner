@@ -55,7 +55,7 @@ class TestThreadQueue(unittest.TestCase):
 class TestModelProcess(unittest.TestCase):
     def test_model_process(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
-        process = mr.ModelProcess(process_args, mr.FileReporter(sys.stdout))
+        process = mr.ModelProcess(process_args, mr.Reporter())
         process.start()
         self.assertTrue(process.is_alive())
         process.join()
@@ -65,8 +65,8 @@ class TestThreadedProcess(unittest.TestCase):
     def test_threaded_process(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
         thread_queue = mr.ThreadQueue(2)
-        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
-        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
+        thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
+        thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
         self.assertEqual(len(thread_queue._tasks), 2)
         thread_queue.wait_all()
         self.assertEqual(len(thread_queue._threads), 0)
@@ -74,8 +74,8 @@ class TestThreadedProcess(unittest.TestCase):
     def test_waiting_on_finish(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
         thread_queue = mr.ThreadQueue(2)
-        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
-        thread_queue.add(mr.ModelProcess(process_args, mr.FileReporter(sys.stdout)))
+        thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
+        thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
         for _ in range(5):
             thread_queue.wait()
             thread_queue.add(mr.ModelProcess(process_args, sys.stdout))
