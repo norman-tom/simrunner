@@ -4,6 +4,82 @@ import time
 import threading
 import os
 
+class RunnerError(Exception):
+    pass
+
+class Parameters:
+    """
+    The parameters of the model.
+
+    Parameters:
+        clone (Parameters): A Parameters object to clone.
+        **kwargs: The parameters.
+    """
+
+    def __init__(self, clone: 'Parameters'=None, **kwargs):
+        if clone is not None:
+            self.__dict__ = clone.__dict__.copy()
+        
+        self.__dict__.update(kwargs)
+
+    def __str__(self) -> str:
+        return str(self.__dict__)
+    
+    def __repr__(self) -> str:
+        return str(self.__dict__)
+    
+    def get_params(self):
+        """
+        Get the parameters.
+
+        Returns:
+            dict: A dictionary of the set parameters.
+        """
+        return self.__dict__
+    
+    @abc.abstractmethod
+    def get_run_args(self) -> list[str]:
+        """
+        Get the required arguments to make a vaild run.
+        """
+        pass
+
+class Run:
+    """
+    A single run of a model.
+
+    Parameters:
+        clone (Run): A Run object to clone.
+        **kwargs: The run arguments.
+    """
+
+    def __init__(self, clone: 'Run'=None, **kwargs) -> None:
+        if clone is not None: 
+            self.__dict__ = clone.__dict__.copy()
+        
+        self.__dict__.update(kwargs)
+
+    def __eq__(self, __value: object) -> bool:
+        if not isinstance(__value, Run):
+            return False
+        
+        return self.__dict__ == __value.__dict__
+    
+    def __str__(self) -> str:
+        return str(self.__dict__)
+    
+    def __repr__(self) -> str:
+        return str(self.__dict__)
+    
+    def get_args(self) -> dict:
+        """
+        Return the run arguments.
+
+        Returns:
+            dict: A dictionary of the run arguments.
+        """
+        return self.__dict__
+
 class TaskQueue:
     """
     Manages the number of tasks that can be run at once. Used as a base class for ThreadQueue.
@@ -124,6 +200,7 @@ class ThreadQueue(TaskQueue):
             t.join()
         self._threads = []
 
+
 class Reporter:
     """
     An interface to report the output of a model run.
@@ -189,120 +266,7 @@ class Reporter:
         """
         pass
 
-class ModelProcess(threading.Thread):
-    """
-    A thread that runs a model process.
 
-    Parameters:
-        command (list[str]): The command to run.
-        reporter (Reporter): The Reporter to report outputs with.
-    """
-
-    def __init__(self, command: list[str], reporter: Reporter) -> None:
-        super().__init__()
-        self._command = command
-        self._reporter = reporter
-
-    def execute(self, cmd):
-        """
-        Executes the subprocess and yields the stdout line by line.
-
-        Args:
-            cmd (list[str]): The command to run.
-        Yields:
-            str: The stdout line.
-        """
-
-        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
-        for stdout_line in iter(popen.stdout.readline, ""):
-            yield stdout_line 
-        popen.stdout.close()
-        return_code = popen.wait()
-        if return_code:
-            raise subprocess.CalledProcessError(return_code, cmd)
-        
-    def run(self) -> None:
-        """
-        Main thread method to run the model process.
-        """
-
-        with self._reporter as f:
-            for out in self.execute(self._command):
-                f.write(out)
-
-class Parameters:
-    """
-    The parameters of the model.
-
-    Parameters:
-        clone (Parameters): A Parameters object to clone.
-        **kwargs: The parameters.
-    """
-
-    def __init__(self, clone: 'Parameters'=None, **kwargs):
-        if clone is not None:
-            self.__dict__ = clone.__dict__.copy()
-        
-        self.__dict__.update(kwargs)
-
-    def __str__(self) -> str:
-        return str(self.__dict__)
-    
-    def __repr__(self) -> str:
-        return str(self.__dict__)
-    
-    def get_params(self):
-        """
-        Get the parameters.
-
-        Returns:
-            dict: A dictionary of the set parameters.
-        """
-        return self.__dict__
-    
-    @abc.abstractmethod
-    def get_run_args(self) -> list[str]:
-        """
-        Get the required arguments to make a vaild run.
-        """
-        pass
-
-class Run:
-    """
-    A single run of a model.
-
-    Parameters:
-        clone (Run): A Run object to clone.
-        **kwargs: The run arguments.
-    """
-
-    def __init__(self, clone: 'Run'=None, **kwargs) -> None:
-        if clone is not None: 
-            self.__dict__ = clone.__dict__.copy()
-        
-        self.__dict__.update(kwargs)
-
-    def __eq__(self, __value: object) -> bool:
-        if not isinstance(__value, Run):
-            return False
-        
-        return self.__dict__ == __value.__dict__
-    
-    def __str__(self) -> str:
-        return str(self.__dict__)
-    
-    def __repr__(self) -> str:
-        return str(self.__dict__)
-    
-    def get_args(self) -> dict:
-        """
-        Return the run arguments.
-
-        Returns:
-            dict: A dictionary of the run arguments.
-        """
-        return self.__dict__
-    
 class FileReporter(Reporter):
     """
     A class to report the output of a model run to a file.
@@ -369,6 +333,48 @@ class FileReporter(Reporter):
             rn = 'NA'
 
         return os.path.join(path, f'run_{rn}_{list(run.get_args().values())}.out')
+
+
+class ModelProcess(threading.Thread):
+    """
+    A thread that runs a model process.
+
+    Parameters:
+        command (list[str]): The command to run.
+        reporter (Reporter): The Reporter to report outputs with.
+    """
+
+    def __init__(self, command: list[str], reporter: Reporter) -> None:
+        super().__init__()
+        self._command = command
+        self._reporter = reporter
+
+    def execute(self, cmd):
+        """
+        Executes the subprocess and yields the stdout line by line.
+
+        Args:
+            cmd (list[str]): The command to run.
+        Yields:
+            str: The stdout line.
+        """
+
+        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+        for stdout_line in iter(popen.stdout.readline, ""):
+            yield stdout_line 
+        popen.stdout.close()
+        return_code = popen.wait()
+        if return_code:
+            raise subprocess.CalledProcessError(return_code, cmd)
+        
+    def run(self) -> None:
+        """
+        Main thread method to run the model process.
+        """
+
+        with self._reporter as f:
+            for out in self.execute(self._command):
+                f.write(out)
     
 class Runner:
     """
@@ -553,6 +559,3 @@ class Runner:
         Build the command string to pass to subprocess.run(), this will be model dependent.
         """
         pass
-
-class RunnerError(Exception):
-    pass
