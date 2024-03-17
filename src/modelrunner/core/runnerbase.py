@@ -348,6 +348,7 @@ class ModelProcess(threading.Thread):
         super().__init__()
         self._command = command
         self._reporter = reporter
+        self.exc = None
 
     def execute(self, cmd):
         """
@@ -359,7 +360,13 @@ class ModelProcess(threading.Thread):
             str: The stdout line.
         """
 
-        popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+        try:
+            popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f'executable "{cmd[0]}" cannot be found') from e
+        except Exception as e:
+            raise e
+        
         for stdout_line in iter(popen.stdout.readline, ""):
             yield stdout_line 
         popen.stdout.close()
@@ -372,9 +379,24 @@ class ModelProcess(threading.Thread):
         Main thread method to run the model process.
         """
 
-        with self._reporter as f:
-            for out in self.execute(self._command):
-                f.write(out)
+        try:
+            with self._reporter as f:
+                for out in self.execute(self._command):
+                    f.write(out)
+        except Exception as e:
+            self.exc = e
+
+    def join(self) -> None:
+        """
+        Wait for the thread to finish.
+
+        Returns:
+            None
+        """
+
+        super().join()
+        if self.exc is not None:
+            raise self.exc
     
 class Runner:
     """

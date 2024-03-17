@@ -337,6 +337,19 @@ class TestRunner(unittest.TestCase):
         if time.time() - start < 0.3:
             self.fail('Expected run to take more than 0.3 seconds')
 
+        # Test when no execuatable is found
+        def _new_build(self, parameters: mr.Parameters, run: mr.Run, *flags: list[str]) -> list[str]:
+            return ['noexist', 'noexist.py']
+        
+        runner._build_command = _new_build.__get__(runner, MyRunner)
+        runner.remove_runs([run2, run3, run4, run5])            
+        
+        try:
+            runner.run()
+            self.fail('Expected FileNotFoundError')
+        except FileNotFoundError:
+            pass   
+
     def test_runner_indexing(self):
         parameters = self.parameters
         runner = mr.Runner(parameters)
@@ -412,8 +425,7 @@ class TestRunner(unittest.TestCase):
             runner.run()
             self.fail('Expected FileNotFoundError')
         except FileNotFoundError:
-            pass
-        
+            pass        
 
 if __name__ == '__main__':
     unittest.main()
