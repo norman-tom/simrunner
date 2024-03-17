@@ -3,7 +3,7 @@ import sys
 import threading
 import time
 import os
-import modelrunner.core.runnerbase as mr
+import simrunner.core.runnerbase as mr
 
 class TestTaskQueue(unittest.TestCase):
     def setUp(self) -> None:

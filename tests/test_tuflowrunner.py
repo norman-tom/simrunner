@@ -1,6 +1,6 @@
 import unittest
 import os
-import modelrunner.tuflow as mr
+import simrunner.tuflow as mr
 
 class TestParameters(unittest.TestCase):
     def setUp(self) -> None:

@@ -1,8 +1,8 @@
-# Modelrunner
+# Simrunner
 
-Modelrunner is the Pythonic way of executing asynchronous simulations, completely replacing the traditional Batch Scripts. Modern workflows call for modern tools, by addopting Python and Jupyter Notebooks for simulation execuation; advanced data pipelines can be developed, and robust analysis and reporting can be undertaken all within the same environment.
+Simrunner is the Pythonic way of executing asynchronous simulations, completely replacing the traditional Batch Scripts. Modern workflows call for modern tools, by addopting Python and Jupyter Notebooks for simulation execuation; advanced data pipelines can be developed, and robust analysis and reporting can be undertaken all within the same environment.
 
-It is hoped that this package will seed the shift of the water resource industry into these modern tools.  
+It is hoped that this package will seed the shift of the water resource industry into these modern tools. 
 
 ## Table of Contents
 
@@ -13,17 +13,23 @@ It is hoped that this package will seed the shift of the water resource industry
 
 ## Installation
 
-This package is not yet hosted on pip. To install, download the scr directory and use run.ipynb or run.py as the starting template. The content of the src folder can be copied (in its entirety) to any folder which is intended to be to root of the project.
+A prelease version is available on PyPi, to install:
+
+    pip install simrunner
 
 ## Usage
 
-The functionality of the package has been detailed in the run.ipynb and run.py. 
+The functionality of the package has been detailed in the run.ipynb. It is best to use this notebook as a template to get started.  
 
 The intended use of this package is to move all data pipelines, analysis and reporting under one roof (Jupyter). This will allow documentation of decisions along side analysis, and automatic reporting of results, something that is impossible with Batch Scripting. 
+
+The library can also be used in python scripts if you are not wanting to use Jupyter.
 
 ## Contributing
 
 Feedback is welcome, please open an issue on the github homepage with any bugs or features you would like to see. 
+
+[Issues and feedback.](https://github.com/norman-tom/simrunner/issues)
 
 ## License
 
