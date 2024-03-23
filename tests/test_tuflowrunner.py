@@ -62,6 +62,22 @@ class TestParameters(unittest.TestCase):
         test_tokens = ["s1", "e1", "e2"]
         self.assertEqual(p.get_run_args(), test_tokens)
 
+    def test_group_id(self):
+        # Test basic creation
+        p: mr.Parameters = mr.Parameters(exec_path=r"tests\data\tuflow\executables",
+                                    root=r"tests\data\tuflow\group_tcf",
+                                    version=r"2020-10-AD",
+                                    engine=r"DP",
+                                    group="MY_PRJ")
+        self.assertEqual(p._find_tcfs(), [os.path.realpath(r"tests\data\tuflow\group_tcf\MY_PRJ_~s1~_~e1~_~e2~_~e3~_01.tcf"),
+                                          os.path.realpath(r"tests\data\tuflow\group_tcf\MY_PRJ_~s1~_~e1~_~e2~_~e3~_02.tcf")])
+        
+        p: mr.Parameters = mr.Parameters(exec_path=r"tests\data\tuflow\executables",
+                                    root=r"tests\data\tuflow\group_tcf",
+                                    version=r"2020-10-AD",
+                                    engine=r"DP",
+                                    group="THERE_PRJ")
+        self.assertEqual(p._find_tcfs(), [os.path.realpath(r"tests\data\tuflow\group_tcf\THERE_PRJ_~s1~_~e1~_~e2~.tcf")])
 
 class TestRun(unittest.TestCase):
     def setUp(self) -> None:
@@ -72,7 +88,6 @@ class TestRun(unittest.TestCase):
         r: mr.Run = mr.Run(a='1', b='2', c='3')
         test_tokens = ["-a", "1", "-b", "2", "-c", "3"]
         self.assertEqual(r.run_args(), test_tokens)
-
 
 class TestRunner(unittest.TestCase):
     def setUp(self) -> None:

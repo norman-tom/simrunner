@@ -7,6 +7,11 @@ class Parameters(runnerbase.Parameters):
         if 'flags' in kwargs:
             if not isinstance(kwargs['flags'], list):
                 raise ValueError("flags must be a list.")
+        else:
+            kwargs['flags'] = []
+
+        if 'async_runs' not in kwargs:
+            kwargs['async_runs'] = 1
         
         super().__init__(clone, **kwargs)
         self._run_args = None
@@ -22,6 +27,7 @@ class Parameters(runnerbase.Parameters):
             if tcf is None:
                 raise FileNotFoundError(f"No .tcf files found in {self.root}.")
             
+            # TODO: This is a bit of a hack, we are assuming the first tcf file is the one we want.
             tcf_file = os.path.basename(tcf[0])
             self._run_args = self.__get_argument_tokens(tcf_file)
 
@@ -35,12 +41,18 @@ class Parameters(runnerbase.Parameters):
             list[str]: A list of all the tcf files found. None if no tcf files found.
         """
 
+        # Get the group name if it exists
+        if 'group' not in self.get_params():
+            group = ""
+        else:
+            group = self.get_params()['group']
+
         root_path = os.path.realpath(self.root)
 
         tcf_files = []
         for root, _, files in os.walk(root_path):
             for file in files:
-                if file.endswith(".tcf"):
+                if file.startswith(group) and file.endswith(".tcf"):
                     tcf_files.append(os.path.join(root, file))
         
         if len(tcf_files) > 0:
