@@ -369,8 +369,10 @@ class ModelProcess(threading.Thread):
         
         for stdout_line in iter(popen.stdout.readline, ""):
             yield stdout_line 
+        
         popen.stdout.close()
         return_code = popen.wait()
+        
         if return_code:
             raise subprocess.CalledProcessError(return_code, cmd)
         
@@ -389,6 +391,9 @@ class ModelProcess(threading.Thread):
     def join(self) -> None:
         """
         Wait for the thread to finish.
+
+        Raises:
+            Exception: If an exception was raised in the thread.
 
         Returns:
             None
