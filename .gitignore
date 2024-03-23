@@ -1,6 +1,8 @@
 # Other stuff
 *.out
 .vscode
+trash
+tests/data/tuflow/examples
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
