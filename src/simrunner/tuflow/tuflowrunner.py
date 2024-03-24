@@ -12,16 +12,21 @@ class Parameters(runnerbase.Parameters):
 
         if 'async_runs' not in kwargs:
             kwargs['async_runs'] = 1
+
+        if 'run_args' in kwargs:
+            if not isinstance(kwargs['run_args'], list):
+                raise ValueError("run_args must be a list.")
+        else:
+            kwargs['run_args'] = None
         
         super().__init__(clone, **kwargs)
-        self._run_args = None
             
     def get_run_args(self) -> list[str]:
         """
         Get the required arguments to make a vaild run.
         """
 
-        if self._run_args is None:
+        if self.run_args is None:
             tcf = self._find_tcfs()
 
             if tcf is None:
@@ -29,9 +34,9 @@ class Parameters(runnerbase.Parameters):
             
             # TODO: This is a bit of a hack, we are assuming the first tcf file is the one we want.
             tcf_file = os.path.basename(tcf[0])
-            self._run_args = self.__get_argument_tokens(tcf_file)
+            self.run_args = self.__get_argument_tokens(tcf_file)
 
-        return self._run_args
+        return self.run_args
 
     def _find_tcfs(self) -> list[str] | None:
         """
