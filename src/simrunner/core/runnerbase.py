@@ -41,6 +41,9 @@ class Parameters:
     def get_run_args(self) -> list[str]:
         """
         Get the required arguments to make a vaild run.
+
+        Returns:
+            list[str]: A list of the required arguments.
         """
         pass
 
@@ -411,7 +414,8 @@ class Runner:
 
     Parameters:
         parameters (Parameters): The parameters of the model.
-        *args (Runner | None): Variable number of runners to add to this runner. A runner can inherit runs from other runners, if required.
+        *args (Runner | None): Variable number of runners to add to this runner. 
+        A runner can inherit runs from other runners, if required.
     """
 
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
@@ -447,10 +451,8 @@ class Runner:
         Run all the staged runs.
 
         Args:
-            *run_numbers (str/s): Variable number of run numbers to execute. If there is only one model, no run number is required. 
-
-        Raises:
-            FileNotFoundError: If the stdout path does not exist.
+            *run_numbers (str/s): Variable number of run numbers to execute. 
+            If there is only one model, no run number is required. 
        """
 
         # Get flags from parameters, or use default
@@ -465,9 +467,15 @@ class Runner:
         except KeyError:
             async_runs = 1
 
+        # Deal with the run numbers.
         if len(run_numbers) == 0:
             run_numbers = [None]
 
+        for rn in run_numbers:
+            if rn is not None and not isinstance(rn, str):
+                raise RunnerError('run number must be a string')
+
+        # Main loop to run the models.
         thread_queue = ThreadQueue(async_runs)
         for run in self:
             for rn in run_numbers:
