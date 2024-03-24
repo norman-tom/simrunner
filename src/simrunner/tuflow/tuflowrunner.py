@@ -24,6 +24,9 @@ class Parameters(runnerbase.Parameters):
     def get_run_args(self) -> list[str]:
         """
         Get the required arguments to make a vaild run.
+
+        Returns:
+            list[str]: A list of the required arguments.
         """
 
         if self.run_args is None:
