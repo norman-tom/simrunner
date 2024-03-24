@@ -421,8 +421,9 @@ class Runner:
         self._reporter = FileReporter
 
         for runner in args:
-            for run in runner:
-                self.stage(run)
+            if isinstance(runner, Runner):
+                for run in runner:
+                    self._runs.append(run)
 
     def __iter__(self) -> 'Runner':
         self._index = 0
@@ -522,7 +523,7 @@ class Runner:
         req_args: set = set(self._parameters.get_run_args())
         
         if run_args != req_args:
-            raise RunnerError(f'run arguments do not match required arguments: {req_args}')
+            raise RunnerError(f'run arguments: {run_args}, do not match required arguments: {req_args}')
 
         if run not in self._runs:
             self._runs.append(run)
