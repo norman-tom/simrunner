@@ -47,6 +47,8 @@ class TestThreadQueue(unittest.TestCase):
     def test_wait_all(self):
         thread1 = threading.Thread(target=time.sleep, args=(0.1,))
         thread2 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread1.start()
+        thread2.start()
         self.queue.add(thread1)
         self.queue.add(thread2)
         self.queue.wait_all()
@@ -65,8 +67,12 @@ class TestThreadedProcess(unittest.TestCase):
     def test_threaded_process(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
         thread_queue = mr.ThreadQueue(2)
-        thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
-        thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
+        p1 = mr.ModelProcess(process_args, mr.Reporter())
+        p2 = mr.ModelProcess(process_args, mr.Reporter())
+        p1.start()
+        p2.start()
+        thread_queue.add(p1)
+        thread_queue.add(p1)
         self.assertEqual(len(thread_queue._tasks), 2)
         thread_queue.wait_all()
         self.assertEqual(len(thread_queue._threads), 0)
