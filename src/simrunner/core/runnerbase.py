@@ -160,20 +160,6 @@ class ThreadQueue(TaskQueue):
     def __init__(self, max_threads: int) -> None:
         super().__init__(max_threads)
         self._tasks: list[threading.Thread] = []
-    
-    def add(self, task: threading.Thread) -> None:
-        """
-        Add a thread to the queue.
-
-        Args:
-            task (threading.Thread): The thread to be added.
-
-        Returns:
-            None
-        """	
-
-        super().add(task)
-        task.start()
 
     def wait(self, sleep=0.1) -> None:
         """
@@ -419,6 +405,7 @@ class Runner:
     """
 
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
+        self._lock = threading.Lock()
         self._parameters: Parameters = parameters
         self._runs: list[Run] = []
         self._index: int = 0
@@ -479,10 +466,14 @@ class Runner:
         thread_queue = ThreadQueue(async_runs)
         for run in self:
             for rn in run_numbers:
+                self._lock.acquire()
                 thread_queue.wait()
                 command = self._build_command(self._parameters, run, flags, rn)
                 reporter = self._reporter(self._parameters, run, rn)
-                thread_queue.add(ModelProcess(command, reporter))
+                process = ModelProcess(command, reporter)
+                process.start()
+                thread_queue.add(process)
+                self._lock.release()
         thread_queue.wait_all()
 
     def stage(self, run: Run | list[Run]) -> None:
