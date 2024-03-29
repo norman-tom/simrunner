@@ -1,7 +1,7 @@
 import ipywidgets as widgets
 from IPython.display import display
 
-class ControllerView(widgets.HBox):
+class ViewController(widgets.HBox):
     def __init__(self):
         super().__init__()
         self.layout = widgets.Layout(
