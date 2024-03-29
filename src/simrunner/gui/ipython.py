@@ -1,7 +1,5 @@
 import ipywidgets as widgets
 from IPython.display import display
-import os
-import signal
 
 class ControllerView(widgets.HBox):
     def __init__(self):
