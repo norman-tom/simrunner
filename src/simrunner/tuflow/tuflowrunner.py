@@ -3,7 +3,7 @@ import os
 import re
 
 class Parameters(runnerbase.Parameters):
-    def __init__(self, clone: 'Parameters' = None, **kwargs):
+    def __init__(self, clone: 'Parameters' = None, **kwargs):       
         if 'flags' in kwargs:
             if not isinstance(kwargs['flags'], list):
                 raise ValueError("flags must be a list.")
@@ -20,6 +20,10 @@ class Parameters(runnerbase.Parameters):
             kwargs['run_args'] = None
         
         super().__init__(clone, **kwargs)
+        
+        req_parameters = {"exec_path", "root", "version", "engine"}
+        if not self._check_required(req_parameters):
+            raise ValueError(f"Missing required parameters. Need to set {req_parameters}.")
             
     def get_run_args(self) -> list[str]:
         """
@@ -102,11 +106,6 @@ class Parameters(runnerbase.Parameters):
         """
         Build the path to the correct executable.
         """
-
-        req_parameters = {"exec_path", "root", "version", "engine"}
-        
-        if not req_parameters.issubset(self.get_params()):
-            raise ValueError("Missing required parameters.")
         
         engine = self.engine.upper()
         if engine not in {"SP", "DP"}:

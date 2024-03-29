@@ -8,12 +8,12 @@ class TestParameters(unittest.TestCase):
     
     def test_get_tcf(self):
         # Test basic creation
-        p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\one_tcf")
+        p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\one_tcf", engine=None, version=None, exec_path=None)
         test_path = os.path.realpath(r"tests\data\tuflow\one_tcf\model_~s1~_~e1~_~e2~.tcf")
         self.assertEqual(p.get_tcf(""), test_path)
         
         # Test with multiple tcf files
-        p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\multi_tcf")
+        p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\multi_tcf", engine=None, version=None, exec_path=None)
         try:
             p.get_tcf("")
             self.fail('Expected FileNotFoundError')
@@ -21,11 +21,19 @@ class TestParameters(unittest.TestCase):
             pass
         
         # Test with no tcf files
-        p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\no_tcf")
+        p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\no_tcf", engine=None, version=None, exec_path=None)
         try:
             p.get_tcf("")
             self.fail('Expected FileNotFoundError')
         except FileNotFoundError:
+            pass
+
+    def test_not_all_required(self):
+        # Test with missing parameters
+        try:
+            p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\one_tcf")
+            self.fail('Expected ValueError')
+        except ValueError:
             pass
 
     def test_get_executable(self):
@@ -39,14 +47,6 @@ class TestParameters(unittest.TestCase):
         
         # Test with invalid engine
         p: mr.Parameters = mr.Parameters(p, engine=r"invalid")
-        try:
-            p.executable()
-            self.fail('Expected ValueError')
-        except ValueError:
-            pass
-        
-        # Test with missing parameters
-        p: mr.Parameters = mr.Parameters(root=r"tests\data\tuflow\one_tcf", engine="SP")
         try:
             p.executable()
             self.fail('Expected ValueError')
