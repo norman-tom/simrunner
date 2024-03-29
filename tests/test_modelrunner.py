@@ -338,7 +338,7 @@ class TestRunner(unittest.TestCase):
         runner.stage(run3)
         runner.stage(run4)
         runner.stage(run5)
-        runner.run()
+        runner.run(blocking=True)
 
         if time.time() - start < 0.3:
             self.fail('Expected run to take more than 0.3 seconds')
@@ -351,7 +351,7 @@ class TestRunner(unittest.TestCase):
         runner.remove_runs([run2, run3, run4, run5])            
         
         try:
-            runner.run()
+            runner.run(blocking=True)
             self.fail('Expected FileNotFoundError')
         except FileNotFoundError:
             pass   
@@ -394,7 +394,7 @@ class TestRunner(unittest.TestCase):
         run2 = mr.Run(a=4, b=5, c=6)
         runner.stage(run1)
         runner.stage(run2)
-        runner.run()
+        runner.run(blocking=True)
 
         # Check if the file exists
         for filename in ['run_NA_[1, 2, 3].out', 'run_NA_[4, 5, 6].out']:
@@ -414,7 +414,7 @@ class TestRunner(unittest.TestCase):
         # Update the parameters to not use a stdout folder
         parameters = MyParameters(async_runs=2)
         runner.__dict__['_parameters'] = parameters
-        runner.run()
+        runner.run(blocking=True)
 
         # Check if the file exists in the correct location
         for filename in ['run_NA_[1, 2, 3].out', 'run_NA_[4, 5, 6].out']:
@@ -428,7 +428,7 @@ class TestRunner(unittest.TestCase):
         parameters = MyParameters(async_runs=2, stdout=r'./tests/stdout/noexist')
         runner.__dict__['_parameters'] = parameters
         try:
-            runner.run()
+            runner.run(blocking=True)
             self.fail('Expected FileNotFoundError')
         except FileNotFoundError:
             pass        

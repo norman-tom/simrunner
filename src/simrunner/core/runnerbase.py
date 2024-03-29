@@ -3,6 +3,7 @@ import abc
 import time
 import threading
 import os
+import signal
 
 class RunnerError(Exception):
     pass
@@ -47,6 +48,17 @@ class Parameters:
         """
         pass
 
+    def _check_required(self, required: list[str]) -> bool:
+        """
+        check that the required parameters have been set.
+
+        Returns:
+            bool: True if the required parameters have been set, False otherwise.
+        """
+
+        return set(required).issubset(set(self.__dict__.keys()))
+
+
 class Run:
     """
     A single run of a model.
@@ -82,6 +94,7 @@ class Run:
             dict: A dictionary of the run arguments.
         """
         return self.__dict__
+
 
 class TaskQueue:
     """
@@ -149,6 +162,7 @@ class TaskQueue:
         """
         pass
 
+
 class ThreadQueue(TaskQueue):
     """
     Manages the number of threads that can be run at once.
@@ -175,7 +189,11 @@ class ThreadQueue(TaskQueue):
                 if not t.is_alive():
                     self._tasks.remove(t)
                     break
-            time.sleep(sleep)
+            try:
+                time.sleep(sleep)
+            except KeyboardInterrupt as e:
+                raise KeyboardInterrupt('call runner.stop() to stop all runs gracefully.') + e
+                
 
     def wait_all(self) -> None:
         """
@@ -337,6 +355,7 @@ class ModelProcess(threading.Thread):
         super().__init__()
         self._command = command
         self._reporter = reporter
+        self._process = None
         self.exc = None
 
     def execute(self, cmd):
@@ -350,19 +369,22 @@ class ModelProcess(threading.Thread):
         """
 
         try:
-            popen = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
+            self._process = subprocess.Popen(cmd, stdout=subprocess.PIPE, universal_newlines=True)
         except FileNotFoundError as e:
             raise FileNotFoundError(f'executable "{cmd[0]}" cannot be found') from e
         except Exception as e:
             raise e
         
-        for stdout_line in iter(popen.stdout.readline, ""):
+        for stdout_line in iter(self._process.stdout.readline, ""):
             yield stdout_line 
         
-        popen.stdout.close()
-        return_code = popen.wait()
+        self._process.stdout.close()
+        return_code = self._process.wait()
         
         if return_code:
+            # If the process was killed by a signal, return without error.
+            if return_code == 2:
+                return
             raise subprocess.CalledProcessError(return_code, cmd)
         
     def run(self) -> None:
@@ -404,12 +426,19 @@ class Runner:
         A runner can inherit runs from other runners, if required.
     """
 
+    SIGINT = signal.SIGINT
+    DONE = 1
+
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
         self._lock = threading.Lock()
+        self._thread_queue = None
+        self._signal = None
         self._parameters: Parameters = parameters
         self._runs: list[Run] = []
         self._index: int = 0
         self._reporter = FileReporter
+
+        signal.signal(signal.SIGINT, self._signal_handler)
 
         for runner in args:
             if isinstance(runner, Runner):
@@ -433,15 +462,24 @@ class Runner:
     def __getitem__(self, key: int) -> Run:
         return self._runs[key]
 
-    def run(self, *run_numbers: list[str]) -> None:
+    def run(self, *run_numbers: list[str], blocking=False) -> None:
         """
         Run all the staged runs.
 
         Args:
             *run_numbers (str/s): Variable number of run numbers to execute. 
             If there is only one model, no run number is required. 
-       """
 
+            blocking (bool): If True, the method will block until all runs are complete.
+            else a new thread will be created to run the models.
+       """
+        
+        if blocking:
+            self._run(*run_numbers)
+        else:
+            threading.Thread(target=self._run, args=run_numbers).start()
+    
+    def _run(self, *run_numbers: list[str]) -> None:
         # Get flags from parameters, or use default
         try:
             flags = self._parameters.get_params()['flags']
@@ -463,18 +501,34 @@ class Runner:
                 raise RunnerError('run number must be a string')
 
         # Main loop to run the models.
-        thread_queue = ThreadQueue(async_runs)
+        self._signal = None
+        self._thread_queue = ThreadQueue(async_runs)
         for run in self:
+            if self._signal == self.SIGINT:
+                break
             for rn in run_numbers:
+                if self._signal == self.SIGINT:
+                    break
                 self._lock.acquire()
-                thread_queue.wait()
+
+                self._thread_queue.wait()
                 command = self._build_command(self._parameters, run, flags, rn)
                 reporter = self._reporter(self._parameters, run, rn)
-                process = ModelProcess(command, reporter)
-                process.start()
-                thread_queue.add(process)
+                thread = ModelProcess(command, reporter)
+                thread.start()
+                self._thread_queue.add(thread)
+
+                print(f"executing: {run}")
+
                 self._lock.release()
-        thread_queue.wait_all()
+
+        self._thread_queue.wait_all()
+
+        if self._signal == self.SIGINT:
+            print('---- ALL RUNS TERMINATED ----')
+        else:
+            self._signal = self.DONE
+            print('---- ALL RUNS COMPLETE ----')
 
     def stage(self, run: Run | list[Run]) -> None:
         """
@@ -579,6 +633,59 @@ class Runner:
             
             if run in self._runs:
                 self._runs.remove(run)
+        
+    def stop(self) -> None:
+        """
+        Stops all models, gracefully.
+
+        Returns:
+            None
+        """
+
+        self._signal = self.SIGINT
+        if self._thread_queue is not None:
+            for threads in self._thread_queue._tasks:
+                os.kill(threads._process.pid, signal.SIGINT)
+                threads.join()
+
+    def pause(self) -> None:
+        """
+        Pauses all running models.
+
+        Returns:
+            None
+
+        Raises:
+            NotImplementedError: If the method is not implemented.
+        """
+
+        raise NotImplementedError('pause is not implemented')
+
+    def resume(self) -> None:
+        """
+        Resumes all paused models.
+
+        Returns:
+            None
+        
+        Raises:
+            NotImplementedError: If the method is not implemented.
+        """
+
+        raise NotImplementedError('resume is not implemented')
+    
+    def done(self) -> bool:
+        """
+        Check if all runs are complete.
+
+        Returns:
+            bool: True if all runs are complete, False otherwise.
+        """
+
+        return self._signal == self.DONE
+    
+    def _signal_handler(self, signal, frame):
+        self.stop()
 
     abc.abstractmethod
     def _build_command(self, parameters: Parameters, run: Run, *flags: list[str]) -> list[str]:
