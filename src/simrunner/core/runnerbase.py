@@ -174,6 +174,13 @@ class ThreadQueue(TaskQueue):
     def __init__(self, max_threads: int) -> None:
         super().__init__(max_threads)
         self._tasks: list[threading.Thread] = []
+        self._signal = None
+
+    def add(self, task: threading.Thread | subprocess.Popen) -> None:
+        # If termination is called, dont accept any more threads.
+        if self._signal is not None:
+            return None
+        super().add(task)
 
     def wait(self, sleep=0.1) -> None:
         """
@@ -192,8 +199,7 @@ class ThreadQueue(TaskQueue):
             try:
                 time.sleep(sleep)
             except KeyboardInterrupt as e:
-                raise KeyboardInterrupt('call runner.stop() to stop all runs gracefully.') + e
-                
+                raise e
 
     def wait_all(self) -> None:
         """
@@ -206,6 +212,18 @@ class ThreadQueue(TaskQueue):
         for t in self._tasks:
             t.join()
         self._threads = []
+
+    def terminate(self) -> None:
+        """
+        Terminate all running threads.
+
+        Returns:
+            None
+        """
+
+        self._signal = signal.SIGINT
+        for thread in self._tasks:
+            os.kill(thread._process.pid, signal.CTRL_C_EVENT)
 
 
 class Reporter:
@@ -410,9 +428,14 @@ class ModelProcess(threading.Thread):
             None
         """
 
-        super().join()
-        if self.exc is not None:
-            raise self.exc
+        try:
+            super().join()
+            if self.exc is not None:
+                raise self.exc
+        except KeyboardInterrupt:
+            #TODO - Seems to be an issue with ipython and KeyboardInterrupt.
+            # an exception is raised when the thread is joined, but the thread is still shuting down.
+            pass
     
 class Runner:
     """
@@ -432,14 +455,16 @@ class Runner:
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
         self._lock = threading.Lock()
         self._thread_queue = None
-        self._signal = None
+        self._signal = self.DONE
         self._parameters: Parameters = parameters
         self._runs: list[Run] = []
         self._index: int = 0
         self._reporter = FileReporter
 
+        # Set the signal handler.
         signal.signal(signal.SIGINT, self._signal_handler)
 
+        # Stage all the runs from the provided runners.
         for runner in args:
             if isinstance(runner, Runner):
                 for run in runner:
@@ -474,12 +499,21 @@ class Runner:
             else a new thread will be created to run the models.
        """
         
+        # if still running, dont run again.
+        if not self.done():
+            return None
+        
         if blocking:
             self._run(*run_numbers)
         else:
             threading.Thread(target=self._run, args=run_numbers).start()
     
     def _run(self, *run_numbers: list[str]) -> None:
+        """
+        Main model run loop. This method is called by the run method in 
+        either a new thread or the main thread.
+        """
+
         # Get flags from parameters, or use default
         try:
             flags = self._parameters.get_params()['flags']
@@ -506,12 +540,19 @@ class Runner:
         for run in self:
             if self._signal == self.SIGINT:
                 break
+
             for rn in run_numbers:
-                if self._signal == self.SIGINT:
-                    break
                 self._lock.acquire()
 
-                self._thread_queue.wait()
+                try:
+                    self._thread_queue.wait()
+                except KeyboardInterrupt:
+                    self._signal_handler(signal.SIGINT, None)
+
+                if self._signal == self.SIGINT:
+                    self._lock.release()
+                    break
+            
                 command = self._build_command(self._parameters, run, flags, rn)
                 reporter = self._reporter(self._parameters, run, rn)
                 thread = ModelProcess(command, reporter)
@@ -527,8 +568,8 @@ class Runner:
         if self._signal == self.SIGINT:
             print('---- ALL RUNS TERMINATED ----')
         else:
-            self._signal = self.DONE
             print('---- ALL RUNS COMPLETE ----')
+        self._signal = self.DONE
 
     def stage(self, run: Run | list[Run]) -> None:
         """
@@ -607,7 +648,6 @@ class Runner:
             else:
                 if args.intersection(run_args) == args:
                     ret.append(run)
-
         return ret
     
     def remove_runs(self, runs: Run | list[Run]) -> None:
@@ -630,7 +670,6 @@ class Runner:
         for run in runs:
             if not isinstance(run, Run):
                 raise RunnerError(f'{run} - is not an instances of Run class')
-            
             if run in self._runs:
                 self._runs.remove(run)
         
@@ -642,11 +681,9 @@ class Runner:
             None
         """
 
-        self._signal = self.SIGINT
-        if self._thread_queue is not None:
-            for threads in self._thread_queue._tasks:
-                os.kill(threads._process.pid, signal.SIGINT)
-                threads.join()
+        if self._signal != self.DONE:
+            self._signal = self.SIGINT
+            self._thread_queue.terminate()
 
     def pause(self) -> None:
         """
@@ -685,6 +722,10 @@ class Runner:
         return self._signal == self.DONE
     
     def _signal_handler(self, signal, frame):
+        """
+        Handler for the keyboard interrupt signal.
+        """
+        
         self.stop()
 
     abc.abstractmethod
