@@ -105,8 +105,20 @@ class TaskQueue:
     """
 
     def __init__(self, max_tasks: int) -> None:
+        self._lock = threading.Lock()
         self._max_tasks = max_tasks
-        self._tasks: list[None] = []
+        self._running_tasks: list = []
+        self._tasks: list = []
+
+    @abc.abstractmethod
+    def start(self, task: threading.Thread | subprocess.Popen) -> None:
+        """
+        Start a task.
+
+        Returns:
+            None
+        """
+        pass
 
     def add(self, task: threading.Thread | subprocess.Popen) -> None:
         """
@@ -116,10 +128,8 @@ class TaskQueue:
             None
         """
 
-        if len(self._tasks) < self._max_tasks:
-            self._tasks.append(task)
-        else:
-            raise RunnerError('task queue is full, call wait() to wait for a free position in the queue.')
+        self._tasks.append(task)
+
 
     def remove(self, task: threading.Thread | subprocess.Popen) -> None:
         """
@@ -139,7 +149,7 @@ class TaskQueue:
             bool: True if the queue is full, False otherwise.
         """
 
-        return len(self._tasks) >= self._max_tasks
+        return len(self._running_tasks) >= self._max_tasks
 
     abc.abstractmethod
     def wait(self, sleep=0.1) -> None:
@@ -174,32 +184,67 @@ class ThreadQueue(TaskQueue):
     def __init__(self, max_threads: int) -> None:
         super().__init__(max_threads)
         self._tasks: list[threading.Thread] = []
-        self._signal = None
+        self._running_tasks: list[threading.Thread] = []
+        self._index = 0
 
-    def add(self, task: threading.Thread | subprocess.Popen) -> None:
-        # If termination is called, dont accept any more threads.
-        if self._signal is not None:
-            return None
-        super().add(task)
+    def __iter__(self) -> 'ThreadQueue':
+        self._index = 0
+        return self
+    
+    def __next__(self) -> threading.Thread:
+        if self._index >= len(self._tasks):
+            # Wait for the last threads in the queue to finish, 
+            # while allowing these to be interupted with CTRL-C Event.
+            # before raising StopIteration.
+            try:
+                self.wait_all()
+            except KeyboardInterrupt as e:
+                self.interupt()
+            finally:
+                raise StopIteration
+        
+        try:
+            self.wait()
+        except KeyboardInterrupt as e:
+            self.interupt()
+            next(self)
+        
+        result = self._tasks[self._index]
+        self._index += 1
+        return result
 
-    def wait(self, sleep=0.1) -> None:
+    def start(self, task: threading.Thread) -> None:
         """
-        Wait until there is a free position in the thread queue, allowing another threads to be added.
-        Wait will block while the maximum number of threads are running.
+        Start a task that is managed by the thread queue.
+        """
+
+        self._lock.acquire()
+        task.start()
+        self._running_tasks.append(task)
+        self._lock.release()
+
+    def wait(self, sleep=0.5) -> None:
+        """
+        Wait until there is a free position in the thread queue, allowing 
+        another threads to be added. Wait will block while the maximum number 
+        of threads are running.
 
         Returns:
             None
         """
 
+        self._lock.acquire()
         while self.full():
-            for t in self._tasks:
+            for t in self._running_tasks:
                 if not t.is_alive():
-                    self._tasks.remove(t)
+                    self._running_tasks.remove(t)
                     break
             try:
                 time.sleep(sleep)
             except KeyboardInterrupt as e:
+                self._lock.release()
                 raise e
+        self._lock.release()
 
     def wait_all(self) -> None:
         """
@@ -207,23 +252,36 @@ class ThreadQueue(TaskQueue):
 
         Returns:
             None
+
+        Raises:
+            KeyboardInterrupt: If a keyboard interrupt is raised.
         """
 
-        for t in self._tasks:
+        for t in self._running_tasks:
             t.join()
-        self._threads = []
+        self._running_tasks = []
 
-    def terminate(self) -> None:
+    def interupt(self) -> None:
         """
-        Terminate all running threads.
+        Interupts all running threads by sending a CTRL-C event.
 
         Returns:
             None
         """
+        
+        print('interupt called')
 
-        self._signal = signal.SIGINT
-        for thread in self._tasks:
-            os.kill(thread._process.pid, signal.CTRL_C_EVENT)
+        self._lock.acquire()
+        # set index to end of list
+        self._index = len(self._tasks)
+        # kill all running threads.
+        for task in self._tasks:
+            if task.is_alive():
+                print(f'killing: {task}')
+                os.kill(task._process.pid, signal.CTRL_C_EVENT)
+        self._lock.release()
+
+        print('interupt complete')
 
 
 class Reporter:
@@ -421,21 +479,17 @@ class ModelProcess(threading.Thread):
         """
         Wait for the thread to finish.
 
-        Raises:
-            Exception: If an exception was raised in the thread.
-
         Returns:
             None
+
+        Raises: 
+            Exception: If an exception was raised during the thread execution.
         """
 
-        try:
-            super().join()
-            if self.exc is not None:
-                raise self.exc
-        except KeyboardInterrupt:
-            #TODO - Seems to be an issue with ipython and KeyboardInterrupt.
-            # an exception is raised when the thread is joined, but the thread is still shuting down.
-            pass
+        super().join()
+        if self.exc is not None:
+            raise self.exc
+        
     
 class Runner:
     """
@@ -537,33 +591,24 @@ class Runner:
         # Main loop to run the models.
         self._signal = None
         self._thread_queue = ThreadQueue(async_runs)
+
+
+        # Add all the runs to the thread queue.
         for run in self:
-            if self._signal == self.SIGINT:
-                break
-
             for rn in run_numbers:
-                self._lock.acquire()
-
-                try:
-                    self._thread_queue.wait()
-                except KeyboardInterrupt:
-                    self._signal_handler(signal.SIGINT, None)
-
-                if self._signal == self.SIGINT:
-                    self._lock.release()
-                    break
-            
                 command = self._build_command(self._parameters, run, flags, rn)
                 reporter = self._reporter(self._parameters, run, rn)
                 thread = ModelProcess(command, reporter)
-                thread.start()
                 self._thread_queue.add(thread)
-
-                print(f"executing: {run}")
-
-                self._lock.release()
-
-        self._thread_queue.wait_all()
+        
+        # Start all the threads. 
+        # The thread_queue will manage the number of threads running.
+        try:
+            for thread in self._thread_queue:
+                self._thread_queue.start(thread)
+                print(f"executing: run")
+        except KeyboardInterrupt:
+            self._signal_handler(signal.SIGINT, None)
 
         if self._signal == self.SIGINT:
             print('---- ALL RUNS TERMINATED ----')
@@ -617,7 +662,9 @@ class Runner:
         req_args: set = set(self._parameters.get_run_args())
         
         if run_args != req_args:
-            raise RunnerError(f'run arguments: {run_args}, do not match required arguments: {req_args}')
+            raise RunnerError(
+                f'run arguments: {run_args}, do not match required arguments: {req_args}'
+            )
 
         if run not in self._runs:
             self._runs.append(run)
@@ -681,9 +728,7 @@ class Runner:
             None
         """
 
-        if self._signal != self.DONE:
-            self._signal = self.SIGINT
-            self._thread_queue.terminate()
+        self._thread_queue.interupt()
 
     def pause(self) -> None:
         """
