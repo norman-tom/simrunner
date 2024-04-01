@@ -181,21 +181,20 @@ class ThreadQueue(TaskQueue):
         max_threads (int): The maximum number of threads that can be run at once.
     """
 
-    def __init__(self, max_threads: int) -> None:
+    def __init__(self, max_threads: int, stop_event) -> None:
         super().__init__(max_threads)
         self._tasks: list[threading.Thread] = []
         self._running_tasks: list[threading.Thread] = []
         self._index = 0
+        self._stop_event = stop_event
 
     def __iter__(self) -> 'ThreadQueue':
         self._index = 0
         return self
     
     def __next__(self) -> threading.Thread:
+        # If we are at the end of the list, wait for all threads to finish.
         if self._index >= len(self._tasks):
-            # Wait for the last threads in the queue to finish, 
-            # while allowing these to be interupted with CTRL-C Event.
-            # before raising StopIteration.
             try:
                 self.wait_all()
             except KeyboardInterrupt as e:
@@ -203,11 +202,12 @@ class ThreadQueue(TaskQueue):
             finally:
                 raise StopIteration
         
+        # Wait for a free position in the thread queue.
         try:
             self.wait()
         except KeyboardInterrupt as e:
             self.interupt()
-            next(self)
+            raise StopIteration
         
         result = self._tasks[self._index]
         self._index += 1
@@ -223,7 +223,7 @@ class ThreadQueue(TaskQueue):
         self._running_tasks.append(task)
         self._lock.release()
 
-    def wait(self, sleep=0.5) -> None:
+    def wait(self, sleep=0.1) -> None:
         """
         Wait until there is a free position in the thread queue, allowing 
         another threads to be added. Wait will block while the maximum number 
@@ -231,22 +231,26 @@ class ThreadQueue(TaskQueue):
 
         Returns:
             None
+
+        Raises:
+            KeyboardInterrupt: If a keyboard interrupt is raised.
         """
 
         self._lock.acquire()
         while self.full():
+            if self._stop_event.is_set():
+                self._lock.release()
+                raise KeyboardInterrupt
+            
             for t in self._running_tasks:
                 if not t.is_alive():
                     self._running_tasks.remove(t)
                     break
-            try:
-                time.sleep(sleep)
-            except KeyboardInterrupt as e:
-                self._lock.release()
-                raise e
+            time.sleep(sleep)
+
         self._lock.release()
 
-    def wait_all(self) -> None:
+    def wait_all(self, sleep=0.1) -> None:
         """
         Wait for all threads to finish.
 
@@ -257,9 +261,10 @@ class ThreadQueue(TaskQueue):
             KeyboardInterrupt: If a keyboard interrupt is raised.
         """
 
-        for t in self._running_tasks:
-            t.join()
-        self._running_tasks = []
+        while any(t.is_alive() for t in self._running_tasks):
+            if self._stop_event.is_set():
+                raise KeyboardInterrupt
+            time.sleep(sleep)
 
     def interupt(self) -> None:
         """
@@ -268,20 +273,12 @@ class ThreadQueue(TaskQueue):
         Returns:
             None
         """
-        
-        print('interupt called')
 
         self._lock.acquire()
-        # set index to end of list
-        self._index = len(self._tasks)
-        # kill all running threads.
-        for task in self._tasks:
+        for task in self._running_tasks:
             if task.is_alive():
-                print(f'killing: {task}')
                 os.kill(task._process.pid, signal.CTRL_C_EVENT)
         self._lock.release()
-
-        print('interupt complete')
 
 
 class Reporter:
@@ -458,10 +455,9 @@ class ModelProcess(threading.Thread):
         return_code = self._process.wait()
         
         if return_code:
-            # If the process was killed by a signal, return without error.
-            if return_code == 2:
-                return
-            raise subprocess.CalledProcessError(return_code, cmd)
+            # If the process was killed by a signal, ignore.
+            if return_code != 2:
+                raise subprocess.CalledProcessError(return_code, cmd)
         
     def run(self) -> None:
         """
@@ -508,6 +504,7 @@ class Runner:
 
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
         self._lock = threading.Lock()
+        self._stop_event = threading.Event()
         self._thread_queue = None
         self._signal = self.DONE
         self._parameters: Parameters = parameters
@@ -541,7 +538,7 @@ class Runner:
     def __getitem__(self, key: int) -> Run:
         return self._runs[key]
 
-    def run(self, *run_numbers: list[str], blocking=False) -> None:
+    def run(self, *run_numbers: list[str]) -> None:
         """
         Run all the staged runs.
 
@@ -553,19 +550,30 @@ class Runner:
             else a new thread will be created to run the models.
        """
         
-        # if still running, dont run again.
+        # If still running, dont run again.
         if not self.done():
             return None
-        
-        if blocking:
-            self._run(*run_numbers)
         else:
-            threading.Thread(target=self._run, args=run_numbers).start()
+            self._stop_event.clear()
+        
+        # Create a new thread to run the models.
+        thread = threading.Thread(target=self._run, args=(self._stop_event, *run_numbers))
+        thread.start()
+
+        # Block until all runs are complete.
+        while thread.is_alive():
+            try:
+                thread.join(1)
+            except KeyboardInterrupt:
+                self.stop()
+        
+        # Set the signal to done and notify the user.
+        self._signal = self.DONE
+        print('---- ALL RUNS COMPLETE ----')
     
-    def _run(self, *run_numbers: list[str]) -> None:
+    def _run(self, stop_event, *run_numbers: list[str]) -> None:
         """
-        Main model run loop. This method is called by the run method in 
-        either a new thread or the main thread.
+        Main model run loop.
         """
 
         # Get flags from parameters, or use default
@@ -590,10 +598,9 @@ class Runner:
 
         # Main loop to run the models.
         self._signal = None
-        self._thread_queue = ThreadQueue(async_runs)
+        self._thread_queue = ThreadQueue(async_runs, stop_event)
 
-
-        # Add all the runs to the thread queue.
+        # Add all the runs to the thread queue without starting them.
         for run in self:
             for rn in run_numbers:
                 command = self._build_command(self._parameters, run, flags, rn)
@@ -601,20 +608,16 @@ class Runner:
                 thread = ModelProcess(command, reporter)
                 self._thread_queue.add(thread)
         
-        # Start all the threads. 
+        # Start all the threads in the queue. 
         # The thread_queue will manage the number of threads running.
+        # Thread queue will block until a free position is available.
         try:
             for thread in self._thread_queue:
                 self._thread_queue.start(thread)
+                # TODO print the name of the run.
                 print(f"executing: run")
         except KeyboardInterrupt:
             self._signal_handler(signal.SIGINT, None)
-
-        if self._signal == self.SIGINT:
-            print('---- ALL RUNS TERMINATED ----')
-        else:
-            print('---- ALL RUNS COMPLETE ----')
-        self._signal = self.DONE
 
     def stage(self, run: Run | list[Run]) -> None:
         """
@@ -728,7 +731,7 @@ class Runner:
             None
         """
 
-        self._thread_queue.interupt()
+        self._stop_event.set()
 
     def pause(self) -> None:
         """
@@ -770,7 +773,7 @@ class Runner:
         """
         Handler for the keyboard interrupt signal.
         """
-        
+
         self.stop()
 
     abc.abstractmethod
