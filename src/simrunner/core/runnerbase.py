@@ -470,6 +470,7 @@ class ModelProcess(threading.Thread):
                     f.write(out)
         except Exception as e:
             self.exc = e
+            raise e
 
     def join(self) -> None:
         """
@@ -486,7 +487,7 @@ class ModelProcess(threading.Thread):
         if self.exc is not None:
             raise self.exc
         
-    
+        
 class Runner:
     """
     The Runner is responsible for queueing and running the model/s. 
@@ -601,21 +602,23 @@ class Runner:
         self._thread_queue = ThreadQueue(async_runs, stop_event)
 
         # Add all the runs to the thread queue without starting them.
+        labels = []
         for run in self:
             for rn in run_numbers:
                 command = self._build_command(self._parameters, run, flags, rn)
                 reporter = self._reporter(self._parameters, run, rn)
                 thread = ModelProcess(command, reporter)
                 self._thread_queue.add(thread)
+                labels.append(f'{run}_{rn}')
         
         # Start all the threads in the queue. 
         # The thread_queue will manage the number of threads running.
         # Thread queue will block until a free position is available.
+        label_itr = iter(labels)
         try:
             for thread in self._thread_queue:
                 self._thread_queue.start(thread)
-                # TODO print the name of the run.
-                print(f"executing: run")
+                print(f"executing: {next(label_itr)}")
         except KeyboardInterrupt:
             self._signal_handler(signal.SIGINT, None)
 
