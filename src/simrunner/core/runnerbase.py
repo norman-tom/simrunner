@@ -179,6 +179,7 @@ class ThreadQueue(TaskQueue):
 
     Parameters:
         max_threads (int): The maximum number of threads that can be run at once.
+        stop_event (threading.Event): The event to interupt the threads.
     """
 
     def __init__(self, max_threads: int, stop_event) -> None:
@@ -197,10 +198,12 @@ class ThreadQueue(TaskQueue):
         if self._index >= len(self._tasks):
             try:
                 self.wait_all()
+                raise StopIteration
             except KeyboardInterrupt as e:
                 self.interupt()
-            finally:
                 raise StopIteration
+            except Exception as e:
+                raise e
         
         # Wait for a free position in the thread queue.
         try:
@@ -250,7 +253,7 @@ class ThreadQueue(TaskQueue):
 
         self._lock.release()
 
-    def wait_all(self, sleep=0.1) -> None:
+    def wait_all(self) -> None:
         """
         Wait for all threads to finish.
 
@@ -260,11 +263,9 @@ class ThreadQueue(TaskQueue):
         Raises:
             KeyboardInterrupt: If a keyboard interrupt is raised.
         """
-
-        while any(t.is_alive() for t in self._running_tasks):
-            if self._stop_event.is_set():
-                raise KeyboardInterrupt
-            time.sleep(sleep)
+        
+        for t in self._running_tasks:
+            t.join()
 
     def interupt(self) -> None:
         """
@@ -470,7 +471,6 @@ class ModelProcess(threading.Thread):
                     f.write(out)
         except Exception as e:
             self.exc = e
-            raise e
 
     def join(self) -> None:
         """
@@ -483,11 +483,38 @@ class ModelProcess(threading.Thread):
             Exception: If an exception was raised during the thread execution.
         """
 
-        super().join()
-        if self.exc is not None:
-            raise self.exc
+        while self.is_alive():
+            super().join(1)
+            if self.exc is not None:
+                raise self.exc
         
+
+class Spawner:
+    """
+    Spawns the model processes.
+    """
+
+    def __init__(self) -> None:
+        self.exc = None
         
+    def run(self, labels, simulations, stop_event, async_runs) -> None:
+        """
+        Main loop to spawn the threads which run the processes.
+        """
+
+        label_itr = iter(labels)
+        thread_queue = ThreadQueue(async_runs, stop_event)
+        for sim in simulations:
+            thread_queue.add(sim)
+        
+        try:
+            for thread in thread_queue:
+                thread_queue.start(thread)
+                print(f"executing: {next(label_itr)}")
+        except Exception as e:
+            self.exc = e
+
+
 class Runner:
     """
     The Runner is responsible for queueing and running the model/s. 
@@ -500,14 +527,8 @@ class Runner:
         A runner can inherit runs from other runners, if required.
     """
 
-    SIGINT = signal.SIGINT
-    DONE = 1
-
     def __init__(self, parameters: Parameters, *args: 'Runner') -> None:
-        self._lock = threading.Lock()
         self._stop_event = threading.Event()
-        self._thread_queue = None
-        self._signal = self.DONE
         self._parameters: Parameters = parameters
         self._runs: list[Run] = []
         self._index: int = 0
@@ -546,19 +567,13 @@ class Runner:
         Args:
             *run_numbers (str/s): Variable number of run numbers to execute. 
             If there is only one model, no run number is required. 
-
-            blocking (bool): If True, the method will block until all runs are complete.
-            else a new thread will be created to run the models.
        """
         
-        # If still running, dont run again.
-        if not self.done():
-            return None
-        else:
+        if self._stop_event.is_set():
             self._stop_event.clear()
         
-        # Create a new thread to run the models.
-        thread = threading.Thread(target=self._run, args=(self._stop_event, *run_numbers))
+        spawner = Spawner()
+        thread = threading.Thread(target=spawner.run, args=(*self.arguments(*run_numbers),))
         thread.start()
 
         # Block until all runs are complete.
@@ -567,14 +582,14 @@ class Runner:
                 thread.join(1)
             except KeyboardInterrupt:
                 self.stop()
-        
-        # Set the signal to done and notify the user.
-        self._signal = self.DONE
+
+        if spawner.exc is not None:
+            raise spawner.exc
         print('---- ALL RUNS COMPLETE ----')
     
-    def _run(self, stop_event, *run_numbers: list[str]) -> None:
+    def arguments(self, *run_numbers: list[str]) -> None:
         """
-        Main model run loop.
+        Returns all the parameters required to run the models.
         """
 
         # Get flags from parameters, or use default
@@ -597,30 +612,18 @@ class Runner:
             if rn is not None and not isinstance(rn, str):
                 raise RunnerError('run number must be a string')
 
-        # Main loop to run the models.
-        self._signal = None
-        self._thread_queue = ThreadQueue(async_runs, stop_event)
-
-        # Add all the runs to the thread queue without starting them.
+        # Get all the model processes and their labels which are to be run.
+        simulations = []
         labels = []
         for run in self:
             for rn in run_numbers:
                 command = self._build_command(self._parameters, run, flags, rn)
                 reporter = self._reporter(self._parameters, run, rn)
-                thread = ModelProcess(command, reporter)
-                self._thread_queue.add(thread)
+                model_proc = ModelProcess(command, reporter)
                 labels.append(f'{run}_{rn}')
-        
-        # Start all the threads in the queue. 
-        # The thread_queue will manage the number of threads running.
-        # Thread queue will block until a free position is available.
-        label_itr = iter(labels)
-        try:
-            for thread in self._thread_queue:
-                self._thread_queue.start(thread)
-                print(f"executing: {next(label_itr)}")
-        except KeyboardInterrupt:
-            self._signal_handler(signal.SIGINT, None)
+                simulations.append(model_proc)
+
+        return labels, simulations, self._stop_event, async_runs
 
     def stage(self, run: Run | list[Run]) -> None:
         """
@@ -761,16 +764,6 @@ class Runner:
         """
 
         raise NotImplementedError('resume is not implemented')
-    
-    def done(self) -> bool:
-        """
-        Check if all runs are complete.
-
-        Returns:
-            bool: True if all runs are complete, False otherwise.
-        """
-
-        return self._signal == self.DONE
     
     def _signal_handler(self, signal, frame):
         """

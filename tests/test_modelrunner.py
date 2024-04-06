@@ -7,42 +7,63 @@ import simrunner.core.runnerbase as mr
 
 class TestTaskQueue(unittest.TestCase):
     def setUp(self) -> None:
-        self.queue = mr.TaskQueue(2)
+        stop_event = threading.Event() 
+        self.queue = mr.ThreadQueue(2, stop_event)
     
-    def test_add_too_many(self):
+    def test_add(self):
         thread1 = threading.Thread(target=time.sleep, args=(0.1,))
         thread2 = threading.Thread(target=time.sleep, args=(0.1,))
         thread3 = threading.Thread(target=time.sleep, args=(0.1,))
         self.queue.add(thread1)
         self.queue.add(thread2)
-        with self.assertRaises(mr.RunnerError):
-            self.queue.add(thread3)
+        self.queue.add(thread3)
+        self.assertEqual(len(self.queue._tasks), 3)
+
+    def test_remove(self):
+        thread1 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread2 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread3 = threading.Thread(target=time.sleep, args=(0.1,))
+        self.queue.add(thread1)
+        self.queue.add(thread2)
+        self.queue.add(thread3)
+        self.assertEqual(len(self.queue._tasks), 3)
+        self.queue.remove(thread1)
+        self.assertEqual(len(self.queue._tasks), 2)
+        self.queue.remove(thread2)
+        self.assertEqual(len(self.queue._tasks), 1)
+        self.queue.remove(thread3)
+        self.assertEqual(len(self.queue._tasks), 0)
 
 class TestThreadQueue(unittest.TestCase):
     def setUp(self):
-        self.queue = mr.ThreadQueue(2)
-
-    def test_add_remove(self):
-        thread = threading.Thread(target=time.sleep, args=(0.1,))
-        self.queue.add(thread)
-        self.assertEqual(len(self.queue._tasks), 1)
-        self.queue.remove(thread)
-        self.assertEqual(len(self.queue._tasks), 0)
+        stop_event = threading.Event() 
+        self.queue = mr.ThreadQueue(2, stop_event)
 
     def test_full(self):
         thread1 = threading.Thread(target=time.sleep, args=(0.1,))
         thread2 = threading.Thread(target=time.sleep, args=(0.1,))
         self.queue.add(thread1)
         self.queue.add(thread2)
+        self.queue._running_tasks.append(thread1)
+        self.queue._running_tasks.append(thread2)
         self.assertTrue(self.queue.full())
 
     def test_wait(self):
         thread1 = threading.Thread(target=time.sleep, args=(0.1,))
         thread2 = threading.Thread(target=time.sleep, args=(0.1,))
-        self.queue.add(thread1)
-        self.queue.add(thread2)
+        self.queue.start(thread1)
+        self.queue.start(thread2)
         self.queue.wait()
         self.assertFalse(self.queue.full())
+
+    def test_start(self):
+        thread1 = threading.Thread(target=time.sleep, args=(0.1,))
+        thread2 = threading.Thread(target=time.sleep, args=(0.1,))
+        self.queue.start(thread1)
+        self.queue.start(thread2)
+        self.assertEqual(len(self.queue._running_tasks), 2)
+        self.assertTrue(thread1.is_alive())
+        self.assertTrue(thread2.is_alive())
 
     def test_wait_all(self):
         thread1 = threading.Thread(target=time.sleep, args=(0.1,))
@@ -52,7 +73,7 @@ class TestThreadQueue(unittest.TestCase):
         self.queue.add(thread1)
         self.queue.add(thread2)
         self.queue.wait_all()
-        self.assertEqual(len(self.queue._threads), 0)
+        self.assertEqual(len(self.queue._running_tasks), 0)
 
 class TestModelProcess(unittest.TestCase):
     def test_model_process(self):
@@ -66,7 +87,8 @@ class TestModelProcess(unittest.TestCase):
 class TestThreadedProcess(unittest.TestCase):
     def test_threaded_process(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
-        thread_queue = mr.ThreadQueue(2)
+        stop_event = threading.Event()  
+        thread_queue = mr.ThreadQueue(2, stop_event)
         p1 = mr.ModelProcess(process_args, mr.Reporter())
         p2 = mr.ModelProcess(process_args, mr.Reporter())
         p1.start()
@@ -75,11 +97,12 @@ class TestThreadedProcess(unittest.TestCase):
         thread_queue.add(p1)
         self.assertEqual(len(thread_queue._tasks), 2)
         thread_queue.wait_all()
-        self.assertEqual(len(thread_queue._threads), 0)
+        self.assertEqual(len(thread_queue._running_tasks), 0)
 
     def test_waiting_on_finish(self):
         process_args = ['python', './tests/stubs/process.py', '0.1']
-        thread_queue = mr.ThreadQueue(2)
+        stop_event = threading.Event()  
+        thread_queue = mr.ThreadQueue(2, stop_event)
         thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
         thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
         for _ in range(5):
