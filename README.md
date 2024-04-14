@@ -13,9 +13,11 @@ It is hoped that this package will seed the shift of the water resource industry
 
 ## Installation
 
-A prelease version is available on PyPi, to install:
+A prelease version is not available on PyPi, so to use:
 
-    pip install simrunner
+Download the the code, either clone or from zip. Then either;
+- Copy the content of the [src directory](https://github.com/norman-tom/simrunner/tree/main/src) into your project directory and use the run.ipynb as the template. or,
+- Manually install locally using pip, [instruction](https://packaging.python.org/en/latest/tutorials/installing-packages/#installing-from-a-local-src-tree).
 
 ## Usage
 
