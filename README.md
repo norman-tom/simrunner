@@ -21,7 +21,7 @@ Download the the code, either clone or from zip. Then either;
 
 ## Usage
 
-The functionality of the package has been detailed in the run.ipynb. It is best to use this notebook as a template to get started.  
+The functionality of the package has been detailed in the [run.ipynb](https://github.com/norman-tom/simrunner/blob/main/src/run.ipynb). It is best to use this notebook as a template to get started.  
 
 The intended use of this package is to move all data pipelines, analysis and reporting under one roof (Jupyter). This will allow documentation of decisions along side analysis, and automatic reporting of results, something that is impossible with Batch Scripting. 
 
