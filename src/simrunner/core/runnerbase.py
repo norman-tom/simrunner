@@ -458,7 +458,7 @@ class ModelProcess(threading.Thread):
         if return_code:
             # If the process was killed by a signal, ignore.
             if return_code != 2:
-                raise subprocess.CalledProcessError(return_code, cmd)
+                raise RunnerError(f'Process exited with an error, check output. Return code: {return_code}')
         
     def run(self) -> None:
         """
