@@ -77,10 +77,20 @@ class Parameters(runnerbase.Parameters):
         """
         Return the tuflow control file.
         """
-        tcf_files = self._find_tcfs()
+        tcf_files = self._find_tcfs()            
         
         if tcf_files is None:
             raise FileNotFoundError(f"No .tcf files found in {self.root}.")
+        
+        pattern = f"_{run_number}[.]tcf$"
+
+        if (len(tcf_files) == 1) and run_number:
+            # Make the passed run number match the tcf file.
+            matches = re.search(pattern, tcf_files[0])
+            
+            if matches is None:
+                raise FileNotFoundError(f"No .tcf files found with run number {run_number}.")
+
         
         if len(tcf_files) > 1:
             # if there are more than one tcf, we need to match on the run number.
@@ -89,7 +99,6 @@ class Parameters(runnerbase.Parameters):
             if run_number is None:
                 raise ValueError(f"Multiple .tcf files found in {self.root}. Must specify run number.")
 
-            pattern = f"_{run_number}\.tcf$"
             matches = [tcf for tcf in tcf_files if re.search(pattern, tcf)]
 
             if len(matches) == 0:
@@ -101,6 +110,7 @@ class Parameters(runnerbase.Parameters):
             tcf_files = matches
         
         return tcf_files[0]
+
     
     def executable(self) -> str:
         """
