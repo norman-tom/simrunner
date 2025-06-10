@@ -31,10 +31,24 @@ def _modify_attribute(ds, attr, value, identifier, key, fid=None):
 @contextmanager
 def modified(path, attr, value, identifier, key='ID'):
     """Context manager to temporarily modify an attribute of a feature by key:value and restore it after."""
+    
+   
     orginal_attr = None
     with ogr.Open(path, gdal.GA_Update) as ds:
         # Get the original attribute value
         layer = ds.GetLayer(0)
+
+        try:
+            feature = layer.GetFeature(0)
+            feature.GetField(key)  # Check if key exists
+        except KeyError:
+            raise ValueError(f"Key '{key}' not found in the layer. Please check the field name.")
+        
+        try:
+            feature.GetField(attr)  # Check if attr exists
+        except KeyError:
+            raise ValueError(f"Attribute '{attr}' not found in the layer. Please check the field name.")
+
         for feature in layer:
             if feature.GetField(key) == identifier:
                 fid = feature.GetFID()
@@ -58,7 +72,13 @@ def _remove_features(ds, id_value, key):
     layer = ds.GetLayer(0)
     deleted_features = []
     
-    # Collect features to delete first (to avoid iteration issues)
+    try:
+        feature = layer.GetFeature(0)
+        feature.GetField(key) 
+    except KeyError:
+        raise ValueError(f"Key '{key}' not found in the layer. Please check the field name.")
+
+    # Collect features to delete first (to avoid iteration issues)   
     features_to_delete = []
     layer.ResetReading()
     for feature in layer:
@@ -112,3 +132,19 @@ def removed(path, identifier, key='ID'):
         if deleted_features:
             with ogr.Open(path, gdal.GA_Update) as ds:
                 _restore_features(ds, deleted_features)
+
+
+@contextmanager
+def only(path: str, identifier, key='ID'):
+    """Context manager to only keep features with a specific key:value and remove all others."""
+    pass
+
+
+@contextmanager
+def scenario(root: str, scenario: str):
+    """Context manager to only use features from a specific scenario.
+    
+    Scenarios are specified with the 'scenario' attribute in the shapefile.
+    Feature can belong to multiple scenarios be sperating with a comma.
+    """
+    pass
