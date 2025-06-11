@@ -1,15 +1,17 @@
-import unittest
+import os
 import sys
 import threading
 import time
-import os
+import unittest
+
 import simrunner.core.runnerbase as mr
+
 
 class TestTaskQueue(unittest.TestCase):
     def setUp(self) -> None:
-        stop_event = threading.Event() 
+        stop_event = threading.Event()
         self.queue = mr.ThreadQueue(2, stop_event)
-    
+
     def test_add(self):
         thread1 = threading.Thread(target=time.sleep, args=(0.1,))
         thread2 = threading.Thread(target=time.sleep, args=(0.1,))
@@ -34,9 +36,10 @@ class TestTaskQueue(unittest.TestCase):
         self.queue.remove(thread3)
         self.assertEqual(len(self.queue._tasks), 0)
 
+
 class TestThreadQueue(unittest.TestCase):
     def setUp(self):
-        stop_event = threading.Event() 
+        stop_event = threading.Event()
         self.queue = mr.ThreadQueue(2, stop_event)
 
     def test_full(self):
@@ -75,19 +78,21 @@ class TestThreadQueue(unittest.TestCase):
         self.queue.wait_all()
         self.assertEqual(len(self.queue._running_tasks), 0)
 
+
 class TestModelProcess(unittest.TestCase):
     def test_model_process(self):
-        process_args = ['python', './tests/stubs/process.py', '0.1']
+        process_args = ["python", "./tests/stubs/process.py", "0.1"]
         process = mr.ModelProcess(process_args, mr.Reporter())
         process.start()
         self.assertTrue(process.is_alive())
         process.join()
         self.assertFalse(process.is_alive())
 
+
 class TestThreadedProcess(unittest.TestCase):
     def test_threaded_process(self):
-        process_args = ['python', './tests/stubs/process.py', '0.1']
-        stop_event = threading.Event()  
+        process_args = ["python", "./tests/stubs/process.py", "0.1"]
+        stop_event = threading.Event()
         thread_queue = mr.ThreadQueue(2, stop_event)
         p1 = mr.ModelProcess(process_args, mr.Reporter())
         p2 = mr.ModelProcess(process_args, mr.Reporter())
@@ -100,14 +105,15 @@ class TestThreadedProcess(unittest.TestCase):
         self.assertEqual(len(thread_queue._running_tasks), 0)
 
     def test_waiting_on_finish(self):
-        process_args = ['python', './tests/stubs/process.py', '0.1']
-        stop_event = threading.Event()  
+        process_args = ["python", "./tests/stubs/process.py", "0.1"]
+        stop_event = threading.Event()
         thread_queue = mr.ThreadQueue(2, stop_event)
         thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
         thread_queue.add(mr.ModelProcess(process_args, mr.Reporter()))
         for _ in range(5):
             thread_queue.wait()
             thread_queue.add(mr.ModelProcess(process_args, sys.stdout))
+
 
 class TestParameters(unittest.TestCase):
     def setUp(self) -> None:
@@ -117,59 +123,61 @@ class TestParameters(unittest.TestCase):
         # Implement the get_run_args method
         class Parameters(mr.Parameters):
             def get_run_args(self):
-                return ['a', 'b', 'c']
-        
+                return ["a", "b", "c"]
+
         # Test basic creation
         p: mr.Parameters = Parameters(a=1, b=2, c=3)
-        self.assertEqual(p.get_params(), {'a': 1, 'b': 2, 'c': 3})
-        self.assertEqual(p.get_run_args(), ['a', 'b', 'c'])
-        
+        self.assertEqual(p.get_params(), {"a": 1, "b": 2, "c": 3})
+        self.assertEqual(p.get_run_args(), ["a", "b", "c"])
+
         # Test cloning
         p_extend: mr.Parameters = Parameters(p)
-        self.assertEqual(p_extend.get_params(), {'a': 1, 'b': 2, 'c': 3})
-        self.assertEqual(p_extend.get_run_args(), ['a', 'b', 'c'])
+        self.assertEqual(p_extend.get_params(), {"a": 1, "b": 2, "c": 3})
+        self.assertEqual(p_extend.get_run_args(), ["a", "b", "c"])
 
         # Test extending
         p_extend: mr.Parameters = Parameters(p, d=4)
         try:
-            self.assertEqual(p_extend.get_params(), {'a': 1, 'b': 2, 'c': 3})
-            self.fail('Expected AssertionError')
+            self.assertEqual(p_extend.get_params(), {"a": 1, "b": 2, "c": 3})
+            self.fail("Expected AssertionError")
         except AssertionError:
             pass
-        self.assertEqual(p_extend.get_params(), {'a': 1, 'b': 2, 'c': 3, 'd': 4})
-        self.assertEqual(p_extend.get_run_args(), ['a', 'b', 'c'])
+        self.assertEqual(p_extend.get_params(), {"a": 1, "b": 2, "c": 3, "d": 4})
+        self.assertEqual(p_extend.get_run_args(), ["a", "b", "c"])
 
         # Test extending with override
         p_extend: mr.Parameters = Parameters(p, a=4)
-        self.assertEqual(p_extend.get_params(), {'a': 4, 'b': 2, 'c': 3})
+        self.assertEqual(p_extend.get_params(), {"a": 4, "b": 2, "c": 3})
+
 
 class TestRun(unittest.TestCase):
     def setUp(self) -> None:
         return super().setUp()
-    
+
     def test_run(self):
         # Test basic creation
         r: mr.Run = mr.Run(a=1, b=2, c=3)
-        self.assertEqual(r.get_args(), {'a': 1, 'b': 2, 'c': 3})
-        
+        self.assertEqual(r.get_args(), {"a": 1, "b": 2, "c": 3})
+
         # Test cloning
         r_extend: mr.Run = mr.Run(r)
-        self.assertEqual(r_extend.get_args(), {'a': 1, 'b': 2, 'c': 3})
+        self.assertEqual(r_extend.get_args(), {"a": 1, "b": 2, "c": 3})
 
         # Test extending
         r_extend: mr.Run = mr.Run(r, d=4)
-        self.assertEqual(r_extend.get_args(), {'a': 1, 'b': 2, 'c': 3, 'd': 4})
+        self.assertEqual(r_extend.get_args(), {"a": 1, "b": 2, "c": 3, "d": 4})
 
         # Test extending with override
         r_extend: mr.Run = mr.Run(r, a=4)
-        self.assertEqual(r_extend.get_args(), {'a': 4, 'b': 2, 'c': 3})
+        self.assertEqual(r_extend.get_args(), {"a": 4, "b": 2, "c": 3})
 
 
 class TestRunner(unittest.TestCase):
     def setUp(self):
         class Parameters(mr.Parameters):
             def get_run_args(self):
-                return ['a', 'b', 'c']
+                return ["a", "b", "c"]
+
         self.parameters = Parameters(a=1, b=2, c=3)
 
         self.r1 = mr.Run(a=1, b=2, c=3)
@@ -214,8 +222,8 @@ class TestRunner(unittest.TestCase):
         # Test adding runs that are not Run objects
         r: mr.Runner = mr.Runner(self.parameters)
         try:
-            r.stage('a')
-            self.fail('Expected RunnerError')
+            r.stage("a")
+            self.fail("Expected RunnerError")
         except mr.RunnerError:
             pass
         self.assertEqual(r._runs, [])
@@ -225,7 +233,7 @@ class TestRunner(unittest.TestCase):
         r.stage(self.r1)
         try:
             r.stage(mr.Run(a=1, b=2, c=3, d=4))
-            self.fail('Expected RunnerError')
+            self.fail("Expected RunnerError")
         except mr.RunnerError:
             pass
         self.assertEqual(r._runs, [self.r1])
@@ -317,8 +325,8 @@ class TestRunner(unittest.TestCase):
         r.stage(self.r2)
         r.stage(self.r3)
         try:
-            r.remove_runs(['a'])
-            self.fail('Expected RunnerError')
+            r.remove_runs(["a"])
+            self.fail("Expected RunnerError")
         except mr.RunnerError:
             pass
         self.assertEqual(r._runs, [self.r1, self.r2, self.r3])
@@ -337,18 +345,18 @@ class TestRunner(unittest.TestCase):
         r.remove_runs(to_remove)
         self.assertEqual(r._runs, [self.r2, self.r3])
 
-    def test_runner_run(self): 
+    def test_runner_run(self):
         # setup parameters
         class MyRunner(mr.Runner):
             def _build_command(self, parameters: mr.Parameters, run: mr.Run, *flags: list[str]) -> list[str]:
-                return ['python', './tests/stubs/writing_process.py', '0.1']
-            
+                return ["python", "./tests/stubs/writing_process.py", "0.1"]
+
         class MyParameters(mr.Parameters):
             def get_run_args(self):
-                return ['a', 'b', 'c']
-            
+                return ["a", "b", "c"]
+
         start = time.time()
-        
+
         parameters = MyParameters(async_runs=2)
         runner = MyRunner(parameters)
         run1 = mr.Run(a=1, b=2, c=3)
@@ -364,20 +372,20 @@ class TestRunner(unittest.TestCase):
         runner.run()
 
         if time.time() - start < 0.3:
-            self.fail('Expected run to take more than 0.3 seconds')
+            self.fail("Expected run to take more than 0.3 seconds")
 
         # Test when no execuatable is found
         def _new_build(self, parameters: mr.Parameters, run: mr.Run, *flags: list[str]) -> list[str]:
-            return ['noexist', 'noexist.py']
-        
+            return ["noexist", "noexist.py"]
+
         runner._build_command = _new_build.__get__(runner, MyRunner)
-        runner.remove_runs([run2, run3, run4, run5])            
-        
+        runner.remove_runs([run2, run3, run4, run5])
+
         try:
             runner.run()
-            self.fail('Expected FileNotFoundError')
+            self.fail("Expected FileNotFoundError")
         except FileNotFoundError:
-            pass   
+            pass
 
     def test_runner_indexing(self):
         parameters = self.parameters
@@ -392,22 +400,22 @@ class TestRunner(unittest.TestCase):
         self.assertEqual(runner[1], run2)
         self.assertEqual(runner[2], run3)
         self.assertEqual(runner[0:2], [run1, run2])
-    
+
     def test_stdout(self):
         # setup parameters
         class MyRunner(mr.Runner):
             def _build_command(self, parameters: mr.Parameters, run: mr.Run, *flags: list[str]) -> list[str]:
-                return ['python', './tests/stubs/writing_process.py', '0.01']
-            
+                return ["python", "./tests/stubs/writing_process.py", "0.01"]
+
         class MyParameters(mr.Parameters):
             def get_run_args(self):
-                return ['a', 'b', 'c']
-            
-        parameters = MyParameters(async_runs=2, stdout=r'./tests/stdout')
+                return ["a", "b", "c"]
+
+        parameters = MyParameters(async_runs=2, stdout=r"./tests/stdout")
         runner = MyRunner(parameters)
 
         # Remove all the files in the directory
-        folder_path = 'tests/stdout'
+        folder_path = "tests/stdout"
         for filename in os.listdir(folder_path):
             file_path = os.path.join(folder_path, filename)
             if os.path.isfile(file_path):
@@ -420,41 +428,42 @@ class TestRunner(unittest.TestCase):
         runner.run()
 
         # Check if the file exists
-        for filename in ['run_NA_[1, 2, 3].out', 'run_NA_[4, 5, 6].out']:
+        for filename in ["run_NA_[1, 2, 3].out", "run_NA_[4, 5, 6].out"]:
             file_path = os.path.join(folder_path, filename)
             if os.path.isfile(file_path):
                 self.assertTrue(True)
             else:
-                self.fail('Expected file to be created')
+                self.fail("Expected file to be created")
 
         # Remove files that start with "run_NA_"
         folder_path = os.getcwd()
         for filename in os.listdir(folder_path):
-            if filename.startswith('run_NA_['):
+            if filename.startswith("run_NA_["):
                 file_path = os.path.join(folder_path, filename)
                 os.remove(file_path)
 
         # Update the parameters to not use a stdout folder
         parameters = MyParameters(async_runs=2)
-        runner.__dict__['_parameters'] = parameters
+        runner.__dict__["_parameters"] = parameters
         runner.run()
 
         # Check if the file exists in the correct location
-        for filename in ['run_NA_[1, 2, 3].out', 'run_NA_[4, 5, 6].out']:
+        for filename in ["run_NA_[1, 2, 3].out", "run_NA_[4, 5, 6].out"]:
             file_path = os.path.join(folder_path, filename)
             if os.path.isfile(file_path):
                 self.assertTrue(True)
-                os.remove(file_path) # Clean up root folder
+                os.remove(file_path)  # Clean up root folder
             else:
-                self.fail('Expected file to be created')
+                self.fail("Expected file to be created")
 
-        parameters = MyParameters(async_runs=2, stdout=r'./tests/stdout/noexist')
-        runner.__dict__['_parameters'] = parameters
+        parameters = MyParameters(async_runs=2, stdout=r"./tests/stdout/noexist")
+        runner.__dict__["_parameters"] = parameters
         try:
             runner.run()
-            self.fail('Expected FileNotFoundError')
+            self.fail("Expected FileNotFoundError")
         except FileNotFoundError:
-            pass        
+            pass
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

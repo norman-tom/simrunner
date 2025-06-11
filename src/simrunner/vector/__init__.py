@@ -1,4 +1,4 @@
-from .context import removed, modified
+from .context import modified, removed
 
 __all__ = [
     "removed",
@@ -6,4 +6,5 @@ __all__ = [
 ]
 
 from osgeo import ogr
+
 ogr.UseExceptions()

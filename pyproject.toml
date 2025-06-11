@@ -33,3 +33,26 @@ classifiers = [
 [project.urls]
 "Homepage" = "https://github.com/norman-tom/simrunner"
 "Bug Tracker" = "https://github.com/norman-tom/simrunner/issues"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+exclude = [
+  ".git",
+  ".venv",
+  "build",
+  "dist",
+  ".conda",
+  ".vscode",
+  ".github",
+  "*.ipynb"
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "D"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.per-file-ignores]
+"!src/**.py" = ["D"]
