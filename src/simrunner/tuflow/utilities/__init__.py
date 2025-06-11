@@ -1,6 +1,7 @@
-from .raster import UtilityConfig, RasterProcessor
+from .raster import ParameterMap, RasterProcessor, UtilityConfig
 
 __all__ = [
     "UtilityConfig",
     "RasterProcessor",
+    "ParameterMap"
 ]

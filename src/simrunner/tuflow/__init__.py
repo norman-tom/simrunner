@@ -1,5 +1,5 @@
-from .tuflowrunner import Runner, Parameters, Run
-from .utilities import UtilityConfig, RasterProcessor
+from .tuflowrunner import Parameters, Run, Runner
+from .utilities import ParameterMap, RasterProcessor, UtilityConfig
 
 __all__ = [
     "Runner",
@@ -7,4 +7,5 @@ __all__ = [
     "Run",
     "UtilityConfig",
     "RasterProcessor",
+    "ParameterMap",
 ]
