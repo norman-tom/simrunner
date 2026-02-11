@@ -34,11 +34,11 @@ class TestUtilityFunctions(unittest.TestCase):
 
     def test_afflux(self):
         processor = RasterProcessor(self.config)
-        processor.elevation_afflux(self.runs[:2], self.runs[2:])
+        processor.afflux(self.runs[:2], self.runs[2:])
 
     def test_afflux_with_parameter(self):
         processor = RasterProcessor(self.config)
-        processor.elevation_afflux(self.runs[:2], self.runs[2:], 's1')
+        processor.afflux(self.runs[:2], self.runs[2:], 's1')
 
         with self.assertRaises(ValueError):
-            processor.elevation_afflux(self.runs[:2], self.runs[2:], 'e2')
+            processor.afflux(self.runs[:2], self.runs[2:], 'e2')

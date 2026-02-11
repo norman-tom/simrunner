@@ -1,4 +1,5 @@
 from contextlib import contextmanager
+from typing import Iterable
 
 from osgeo import gdal, ogr
 
@@ -32,7 +33,7 @@ def _modify_attribute(ds, attr, value, identifier, key, fid=None):
 
 @contextmanager
 def modified(path, attr, value, identifier, key="ID"):
-    """Context manager to temporarily modify an attribute of a feature by key:value and restore it after."""
+    """Context manager to temporarily modify an attribute of a feature by key:identifier and restore it after."""
     orginal_attr = None
     with ogr.Open(path, gdal.GA_Update) as ds:
         # Get the original attribute value
@@ -122,7 +123,7 @@ def _restore_features(ds, deleted_features):
 
 @contextmanager
 def removed(path, identifier, key="ID"):
-    """Context manager to temporarily remove features by a key:value and restore them after the block."""
+    """Context manager to temporarily remove features by a key:identifier and restore them after the block."""
     deleted_features = []
 
     # Remove features
@@ -138,9 +139,44 @@ def removed(path, identifier, key="ID"):
 
 
 @contextmanager
-def only(path: str, identifier, key="ID"):
-    """Context manager to only keep features with a specific key:value and remove all others."""
-    pass
+def only(path: str, identifiers: list[str] | tuple[str, ...] | set[str], key="ID"):
+    """Context manager to only keep features with specific identifiers and remove all others."""
+    # Convert to set for faster lookup
+    id_set = set(identifiers)
+    deleted_features = []
+    
+    # Remove features that don't match the identifiers
+    with ogr.Open(path, gdal.GA_Update) as ds:
+        layer = ds.GetLayer(0)
+        features_to_delete = []
+        
+        # Collect features to delete
+        layer.ResetReading()
+        for feature in layer:
+            field_value = feature.GetField(key)
+            if field_value not in id_set:
+                # Store the feature data before deletion
+                geom = feature.GetGeometryRef().Clone()
+                layer_defn = layer.GetLayerDefn()
+                attrs = {}
+                for i in range(layer_defn.GetFieldCount()):
+                    field_name = layer_defn.GetFieldDefn(i).GetName()
+                    attrs[field_name] = feature.GetField(field_name)
+                
+                features_to_delete.append((feature.GetFID(), geom, attrs))
+        
+        # Delete the features
+        for fid, geom, attrs in features_to_delete:
+            layer.DeleteFeature(fid)
+            deleted_features.append((geom, attrs))
+    
+    try:
+        yield
+    finally:
+        # Restore all deleted features
+        if deleted_features:
+            with ogr.Open(path, gdal.GA_Update) as ds:
+                _restore_features(ds, deleted_features)
 
 
 @contextmanager

@@ -4,7 +4,7 @@ import signal
 import subprocess
 import threading
 import time
-
+from typing import Unpack
 
 class RunnerError(Exception):
     pass
@@ -428,8 +428,16 @@ class ModelProcess(threading.Thread):
         """Main thread method to run the model process."""
         try:
             with self._reporter as f:
+                last_flush_time = time.time()
+                flush_interval = 10  # Flush every 10 seconds
+
                 for out in self.execute(self._command):
                     f.write(out)
+
+                    # Check if it's time to flush
+                    if time.time() - last_flush_time >= flush_interval:
+                        f._f.flush()  # Flush the file
+                        last_flush_time = time.time()
         except Exception as e:
             self.exc = e
 
